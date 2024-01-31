@@ -1,0 +1,11 @@
+general form:
+f(r)=b*exp(-1/2*a²*r²) 			-> 	H(f(r))=b/a²*exp(-k²/(2*a²))
+
+
+Cahill's:
+p(r)=(2*Aₒ)/(π*rₒ²)*exp(-2*r²/rₒ²)	-> where H(k) = 2π ∫ g(r)*Jₒ(2πkr)*r dr which yields	->	P(k)=A*exp(-π²*k²*rₒ²/2) 
+
+Schmidt's:
+p(r)=(2*Aₒ)/(π*rₒ²)*exp(-2*r²/rₒ²)	-> where H(k) = ∫ g(r)*Jₒ(kr)*r dr which yields		->	P(k)=Aₒ/2π*exp(-k²*rₒ²/8)
+
+[ and if f(r)=b*exp(-1/2*a²*r²) yields H(k)=b/a²*exp(-k²/(2*a²)), then here, a²=4/rₒ², b=(2*Aₒ)/(π*rₒ²), b/a²=(2*Aₒ)/(π*rₒ²)*rₒ²/4=Aₒ/2π. 1/2a²=rₒ²/8 ]

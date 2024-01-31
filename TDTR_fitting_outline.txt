@@ -1,0 +1,76 @@
+#MATH
+#Jiang's, Qian's, and Yanga's "Tutorial, Time-domain thermoreflectance (TDTR) for thermal property characterization of bulk and thin film materials"
+#Vᵢₙ(t𝘥)  =   ½  Σ (ΔT(ω₀+n*ωₛ)+ΔT(-ω₀+n*ωₛ))*exp(i*n*ωₛ*t𝘥) ; n from -∞ to ∞			#Jiang eq 2.21 
+#Vₒᵤₜ(t𝘥) = -i*½ Σ (ΔT(ω₀+n*ωₛ)-ΔT(-ω₀+n*ωₛ))*exp(i*n*ωₛ*t𝘥) ; n from -∞ to ∞			#Jiang eq 2.22
+#	ω₀ and ω𝘴  are modulation frequency and laser pulse frequency 				#Jiang eq 2.10+
+#	ΔT(ω)=A₁ ∫ Ĝ(k,ω)*exp(-π²*k²*w₀²)*2*π*k*dk ; from 0 to ∞				#Jiang eq 2.18
+#		A₁ is pump power average 							#Jiang eq 2.10+
+#		w₀=√(½(w₁²+w₂²)) 								#Jiang eq 2.18+
+#		Ĝ(k,ω)=-D/C 									#Jiang eq 2.9
+#			[N]ₙ[M]ₙ...[R]₁[N]₁[M]₁=|A B| where 1 is upper, n is lower		#Jiang eq 2.8
+#						|C D|
+#				[N]=| 1  1 | |exp(λ*L)   0   |					#Jiang eq 2.5
+#				    |-γᵢ γᵢ| |  0   exp(-λ*L)|
+#				[M]=_1_   |γᵢ -1|						#Jiang eq 2.6
+#				   (2*γᵢ) |γᵢ  1|
+#				[R]=|1 -1/G|							#Jiang eq 2.7
+#				    | 0  1 |
+#					γ=K𝘻*λ							#Jiang eq 2.4+
+#					λ²=4*π²*k²*η+i*ω*C/K𝘻					#Jiang eq 2.2+
+#					η=K𝘳/K𝘻							#Jiang eq 2.1+
+#OR, use: Schmidt's, Chen's, and Chen's "Pulse accumulation, radial heat conduction, and anisotropic thermal conductivity in pump-probe transient thermoreflectance"
+#Z(ω)=β Qₚᵤ Qₚᵣ / T² Σ H(ωₒ+k*ωₛ)*exp(i*k*ωₛ*t) ; k from -∞ to ∞ 				#Schmidt eq 5
+#	H(ω)= A₀ / (2*π) ∫ k (-D/C) exp(-k²(w₀²+w₁²)/8) dk ; from 0 to ∞			#Schmidt eq 15
+#			[M]ₙ...[M]₁=|A B| where 1 is upper, n is lower				#Schmidt eq 11
+#				    |C D|
+#				[M]=|   cosh(q*d)    -1 / σ𝑧*q sinh(q*d) |			#Schmidt eq 10
+#				    | -σ𝑧*q sinh(q*d)      cosh(q*d)     |
+#					q²=σ𝘳*k²+ρ*c*i*ω / σ𝑧					#Schmidt eq 13
+
+#Computationabe aware: pregenSetup() populates arrays with ΔT(±ω₀+n*ωₛ) for a list of n values. it is far more efficient to do this once, rather than again each time Vin() or Vout() are called.	
+
+#OPERATION:
+#solve() < TDTR_fitting.py
+#	importFile()
+#	curve_fit() #fitting function: takes datapoints, and repeatedly calls child function which generates a curve, testing the passing of various args until a match is found
+#		decayFunc() -> generates decay curve from tp
+#			setTofitVals() -> sets values in tp
+#			pregenSetup -> sets up mathematical helpers (matrices for range of n values for example)
+#			for t in ts: call Vin() Vout() -> comute in and out of phase signal
+
+#solveSimultaneous() < TDTR_fitting.py
+#	for each file: call importFile()
+#	least_squares() #minimization function: repeatedly calls child function which generates datapoints, testing the passing of various args until a minimum lsq is found
+#		solveSimultHelper() -> generates error (data-calculated) which we want minimized, compared against curve_fit accepting the data+func, we need to handle the diffing of the two outselves for least_squares. 
+#			for each file: call decayFunc()
+#				... [identical to solve>curve_fit>decayFunc>...]
+
+#solveKZF() < TDTR_fitting_KZF
+#	curve_fit()
+#		decayKZF() -> only difference from solve>curve_fit>decayFunc>... in that we outsource updating of tp, instead of letting decayFunc do it
+#			popPropmatKZF() -> update tp (slice middle layer(s) and update
+#				KZF() -> here we define what K should be as a function of depth. [edit this to swap in a different function]
+				KZFother() -> here we define other params you may want to edit [edit this to swap in a different function]
+#			decayFunc()
+#				pregenSetup()
+#				for t in ts: call Vin() Vout()
+
+#solveKZFSimult()
+	for each file: call importFile()
+	least_squares()
+		mG2helper()
+			for each file: call decayKZF()
+
+proposed:
+solve():
+	if type(fileToRead)==str
+		fileToRead=[fileToRead] #cast to list, for all simultaneous-supporting following code
+	if KZF=False:
+		solve() #copied from solveSimultaneous. original "solve" deprecated
+	else:
+		solveKZF() #copied from solveKZFSimult(), original solveKZF deprecated
+	
+		
+
+
+

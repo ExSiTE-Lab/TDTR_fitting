@@ -1,0 +1,77 @@
+
+Jiang:
+#ΔT(t)=exp(i*ω₀*t)*Σ ΔT(ω₀+n*ωₛ)*exp(i*n*ωₛ*t𝘥) #from -∞ to ∞, Jiang eq 2.20 
+#Vᵢₙ(t𝘥)  =   ½  Σ (ΔT(ω₀+n*ωₛ)+ΔT(-ω₀+n*ωₛ))*exp(i*n*ωₛ*t𝘥) #from -∞ to ∞, Jiang eq 2.21 
+#Vₒᵤₜ(t𝘥) = -i*½ Σ (ΔT(ω₀+n*ωₛ)-ΔT(-ω₀+n*ωₛ))*exp(i*n*ωₛ*t𝘥) #from -∞ to ∞, Jiang eq 2.22
+#	ω₀ and ω𝘴  are modulation frequency and laser pulse frequency #Jiang eq 2.10+
+#	ΔT(ω)=A₁ ∫ Ĝ(k,ω)*exp(-π²*k²*w₀²)*2*π*k*dk #from 0 to ∞, Jiang eq 2.18
+#		A₁ is pump power average #Jiang eq 2.10+
+#		w₀=√(½(w₁²+w₂²)) #Jiang eq 2.18+
+#		Ĝ(k,ω)=-D/C #Jiang eq 2.9
+
+
+#Schmidt
+H(ω)= A₀ / (2*π) ∫ k (-D/C) exp(-k²(w₀²+w₁²)/8) dk #from 0 to ∞, Schmidt eq 8
+
+#Cahill
+ΔT=2 π A ∫ Ĝ(k)*exp(-π²*k²*(w₁²+w₂²)/2) k dk (matches Jiang's)
+
+#Jiang									#Schmidt
+ΔT(ω)=A₁ ∫ Ĝ(k,ω)*exp(-π²*k²*w₀²)*2*π*k*dk				H(ω)= A₀ / (2*π) ∫ k (-D/C) exp(-k²(w₀²+w₁²)/8) dk
+ΔT(ω)=A₁ ∫ k Ĝ(k,ω) exp(-π²*k²(w₁²+w₂²)/2) 2 π dk			H(ω)= A₁ / (2*π) ∫ k Ĝ(k,ω) exp(-k²(w₁²+w₂²)/8) dk
+ΔT(ω)=A₁ 2 π ∫ k Ĝ(k,ω) exp(-π²*k²(w₁²+w₂²)/2)  dk			H(ω)= A₁ / (2*π) ∫ k Ĝ(k,ω) exp(-k²(w₁²+w₂²)/8) dk
+
+									Z(ω₀) = β Σ H(ω₀+k*ωₛ)*exp(i*k*ωₛ*t)
+
+
+Braun: Re[Z(ω₀,t)*exp(i*ω₀*t)]=Re[Z(ω₀,t)]*cos(ω₀*t)-Im[Z(ω₀,t)]*sin(ω₀*t)
+
+amplitude and phase
+A*exp(i(ω₀*t+ϕ)=Z(ω₀)*exp(i*n*ωₛ*t)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
