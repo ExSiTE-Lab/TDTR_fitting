@@ -1,0 +1,7 @@
+pip wants:
+setup.py
+packageDirectory
+ |__ code.py
+ |__ __init__.py
+
+and if __init__.py contains "from TDTR_fitting.TDTR_fitting import *", then in your code, you should be able to simply call "from TDTR_fitting import all,the,functions,you,want" and then be able to access those functions directly
