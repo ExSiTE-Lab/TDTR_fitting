@@ -931,10 +931,14 @@ def runPerturbing(event):
 	else:
 		perturb=perturb.split(",")
 	perturbBy=perturbBy.split(",") ; perturbBy=[float(pb) for pb in perturbBy]
-	solveFunc=solve
+
+	if lastrun=="simult":
+		solveFunc={"func":ss2,"kwargs":{"listOfTypes":ss2t}} ; loopOver=[ss2f]
+	else:
+		solveFunc={"func":solve,"kwargs":{}} ; loopOver=files
 	r,e=[],[]
-	for f in files:
-		s,u,params=perturbUncertainty(f,paramsToPerturb=perturb,perturbBy=perturbBy,plotting="save") #,paramsToPerturb=paramsToPerturb,perturbBy=perturbBy)
+	for f in loopOver:
+		s,u,params=perturbUncertainty(f,paramsToPerturb=perturb,perturbBy=perturbBy,plotting="save",solveFunc=solveFunc) #,paramsToPerturb=paramsToPerturb,perturbBy=perturbBy)
 		#print("s,u,params",s,u,params)
 		for P,dP,dR in params:
 			resultString="perturb "+P+" by "+str(dP)+"% --> "+",".join( ["d"+p+"="+sigFigs(v,4) for p,v in zip(getVar("tofit"),dR) ] )
@@ -946,7 +950,7 @@ def runPerturbing(event):
 
 	if len(files)>1:
 		r=np.mean(r,axis=0) ; e=np.mean(e,axis=0)
-		resultString=" , ".join([p+" = "+sigFigs(v)+"+/-"+sigFigs(dv)+" "+unitsDict[p[:-1]] for p,v,dv in zip(getVar("tofit"),r,e) ])
+		resultString=" , ".join([p+" = "+sigFigs(v*getScaleUnits(p)[0])+"+/-"+sigFigs(dv)+" "+getScaleUnits(p)[1] for p,v,dv in zip(getVar("tofit"),r,e) ])
 		out("averaged:")
 		out(resultString)	
 	
@@ -1043,7 +1047,7 @@ def viewMap(event,rerun=False):
 		lplot([Xs[0]],[Zs],xlabel="position (um)",ylabel=mapMode,filename="gui.png",title="",labels=[""],xlim=["nonzero"]) ; lastPlot="plot"
 	else:
 		lcontour(Zs,Xs,Ys,heatOrContour="heat",xlabel=xlb,ylabel=ylb,title=title) ; lastPlot="contour"
-
+		#lcontour(Zs,Xs,Ys,heatOrContour="heat",xlabel=xlb,ylabel=ylb,title=title,filename=files[0].replace(".mat",".png"))
 	
 @wrapper
 def steadyFreq(event): # secret function, generated Jeff's Fig 2 from

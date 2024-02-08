@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*- #need this to accept unicode shenanigans below. TDTR_fitting.py is written by Thomas W. Pfeifer
-# v0.161 (goes with 0.71)
+# v0.162 (goes with 0.72)
 
 #USE CASE 1: STANDALONE: edit the below thermal properties, measurement parameters, and fitting settings, and execute "python TDTR_fitting.py" to have the file specified read in, fitting performed, and the specified thermal properties returned. 
 #USE CASE 2: EXTERNALLY CALLED: import this code into another python script via "from TDTR_fitting import *". Then, be sure to set the various thermal properties , measurement parameters, and fitting settings in your code (via the function "setVar(variableName,value)"), and call "solve" yourself. This allows you to process many files at once. 
@@ -45,7 +45,7 @@ fitting="R"
 #You may also set the upper and lower bounds for fitting variables here. We define them based on type, rather than dependant on guess values (guess/20 - guess*20 might not even be okay for K, but it is quite excessive for C, for example). beware: we'll crash if your guess is outside the bounds. 
 LBUB = { "C":(.1e6,10e6)    , "Kz":(.01,1500000)        , "Kr":(.01,1500000)           , "G":(1e3,5e9)  , "R":(1/750e6,1/5e6) , 
          "d":(5e-9,1)       , "rpump":(1e-6,30e-6)      , "rprobe":(1e-6,30e-6)         , "gamma":(0,1e12) , "tshift":(-.1,.1)   ,
-         "chopwidth":(0,25) , "yshiftPWA":(-1e-2,1e-2), "sphase":(-2*3.14159,2*3.14159), "phase":(0,0)    , "alpha":(0,1),
+         "chopwidth":(0,25) , "yshiftPWA":(-1e-2,1e-2), "slopedPhaseOffset":(-2*3.14159,2*3.14159), "variablePhaseOffset":(0,0)    , "alpha":(0,1),
          "expA":(-10000,10000)   , "expB":(-200,0)          , "expC":(0,10000) , "anisotropy":(0.00000001,10000000) , "dutyCycle":(0,100) }
 lbs={ k:LBUB[k][0] for k in LBUB.keys() }
 ubs={ k:LBUB[k][1] for k in LBUB.keys() }
@@ -620,7 +620,7 @@ def writeResultFile(datafile,r,e):
 		f.write("\n"+"tp="+str(tp)+",rpr="+str(rprobe)+",rpu="+str(rpump))
 
 # SOLVING FUNCTIONS
-# generic solve(), sensitivity(), perturbUncertainty(), measureContour1Axis() functions check variable "mode" to check which solve function to call (solveTDTR, solveSSTR), and resultsPlotter() (called by all solve functions) checks vairable "mode" to decide how to plot the resilts. it's a bit sketchy though: e.g. user imports TDTR_fitting, calls solveSSTR manually, means solveSSTR needs to re-set "mode" so resultsPlotter can check it. easy to mess up for future solver functions (TODO: find some sanity here)
+# generic solve(), sensitivity(), perturbUncertainty(), measureContour1Axis() functions check variable "mode" to check which solve function to call (solveTDTR, solveSSTR), and resultsPlotter() (called by all solve functions) checks variable "mode" to decide how to plot the resilts. it's a bit sketchy though: e.g. user imports TDTR_fitting, calls solveSSTR manually, means solveSSTR needs to re-set "mode" so resultsPlotter can check it. easy to mess up for future solver functions (TODO: find some sanity here)
 mode="TDTR"
 def solve(fileToRead,plotting="show",refit=True):
 	# First, check if this file has already been solved for
@@ -638,6 +638,7 @@ def solve(fileToRead,plotting="show",refit=True):
 #			return r,e
 	r,e=readResultFile(fileToRead)
 	if not refit and r is not None:
+		conditionalPrint("solve","refit==False: returning results from file")
 		#print("REFIT=False")
 		return r,e
 
@@ -1089,36 +1090,52 @@ def saveGen(txy,fname,delim="\t"):
 # just shifted) when Y=.1 is 10% error). 
 # instead, when fitting for phase, we effectively need to fit the data to the model (instead of model to
 # data, as is the normal procedure).
-slopedPhaseOffset=4 # Attempts at a theory-based phase offset scheme: laser path / electronics / etc may all create a phase offset between the "true" probe response and the "measured" probe response (or you can think of it as time delay between two supposedly-simultaneous sinusoidal signals at a given frequency). for FDTR, it is common practice to fit for the phase offset (because there is no time-delay=0 crossing to use for automatic phase correction like with TDTR)
+slopedPhaseOffset=0 # Attempts at a theory-based phase offset scheme: laser path / electronics / etc may all create a phase offset between the "true" probe response and the "measured" probe response (or you can think of it as time delay between two supposedly-simultaneous sinusoidal signals at a given frequency). for FDTR, it is common practice to fit for the phase offset (because there is no time-delay=0 crossing to use for automatic phase correction like with TDTR)
 variablePhaseOffset=0 # empirical phase offset: conceivably data may not follow slopedPhaseOffset, so instead, simply use a reference sample to generate a phase-vs-frequency offset dataset. fit for vphase on a known sample, then the point-by-point correction will be applied to all subsequent fits
 # TODO phase offset may be frequency-dependent! 
 def solveFDTR(fileToRead,plotting="show"):
 	global mode,tofit,variablePhaseOffset ; mode="FDTR"
 	conditionalPrint("solveFDTR","importing file:"+fileToRead)
+	conditionalPrint("solveFDTR","phase offsets: slopedPhaseOffset: "+str(slopedPhaseOffset)+", variablePhaseOffset: "+str(variablePhaseOffset))
 	#FILE READING
-	fs,phis=readFDTR(fileToRead)
+	fs,phis=readFDTR(fileToRead) #; phis+=variablePhaseOffset
 	#global slopedPhaseOffset ; slopedPhaseOffset=0
-	phasefile=fileToRead.split("/")[:-1]
-	phasefile.append("phase.txt")
-	phasefile="/".join(phasefile)
-	if os.path.exists(phasefile):
-		vPO=open(phasefile).readlines()[0]
-		vPO=vPO.split(",")
-		variablePhaseOffset=np.asarray([ float(v) for v in vPO ])
+	#phasefile=fileToRead.split("/")[:-1]
+	#phasefile.append("phase.txt")
+	#phasefile="/".join(phasefile)
+	#if os.path.exists(phasefile):
+	#	vPO=open(phasefile).readlines()[0]
+	#	vPO=vPO.split(",")
+	#	variablePhaseOffset=np.asarray([ float(v) for v in vPO ])
 	#FITTING
 	guesses=getTofitVals() ; bnds=lookupBounds() # guesses come from thermal property matrix, bounds come from ubs / lbs globals
-	if "phase" in tofit:
-		variablePhaseOffset=FDTRfunc(fs)-phis
-		with open(phasefile,'w') as f:
-			f.write(",".join([str(v) for v in variablePhaseOffset]))
-		tofit=[]
-	corrected=phis+variablePhaseOffset ; corrected[corrected>np.pi]-=2*np.pi ; corrected[corrected<-np.pi]+=2*np.pi
+	#if "phase" in tofit:
+	#	variablePhaseOffset=FDTRfunc(fs)-phis
+	#	with open(phasefile,'w') as f:
+	#		f.write(",".join([str(v) for v in variablePhaseOffset]))
+	#	tofit=[]
+	#corrected=phis+variablePhaseOffset ; corrected[corrected>np.pi]-=2*np.pi ; corrected[corrected<-np.pi]+=2*np.pi
 	#plot([fs,fs,fs],[phis,variablePhaseOffset,corrected],xscale="log")
-	phis=corrected
+	#phis=corrected
 	#phis+=variablePhaseOffset
 	#fs=fs[phis>-3] ; phis=phis[phis>-3]
 	#fs=fs[phis<3]  ; phis=phis[phis<3]
-	if len(tofit)!=0:
+	if tofit==["variablePhaseOffset"] or tofit==["phase"]:
+		phi_m=FDTRfunc(fs) ; phis-=variablePhaseOffset # remove old offset
+		variablePhaseOffset=phi_m-phis
+		print(variablePhaseOffset) ; fs,phis=readFDTR(fileToRead)
+		tofit=[] ; solvedParams=[] ; sigmas=[]
+	elif tofit==["slopedPhaseOffset"] or tofit==["sphase"]: # if fitting for phase, since the offset is applied in readFDTR, we sort of do the fitting "backwards": func in curve_fit is readFDTR and the "data" is the model
+		phi_m=FDTRfunc(fs)
+		def readFDTRp(fs,slope):
+			global slopedPhaseOffset
+			slopedPhaseOffset=slope
+			fs,phis=readFDTR(fileToRead) ; print(slope,phis)
+			return phis
+		solvedParams, parm_cov = curve_fit(readFDTRp,fs,phi_m,p0=([4]),bounds=tuple(bnds)) ; sigmas=[0]
+		fs,phis=readFDTR(fileToRead)
+		tofit=[] ; solvedParams=[] ; sigmas=[]
+	elif len(tofit)!=0:
 		solvedParams, parm_cov = curvefit(FDTRfunc, fs, phis, p0=tuple(guesses),bounds=tuple(bnds)) #solve it
 		sigmas=np.sqrt(np.diag(parm_cov))
 		#lsqout=least_squares(dzFDTR, tuple(guesses), bounds=tuple(bnds), args=(fs,phis,fileToRead))
@@ -1192,7 +1209,7 @@ def readFDTR(filename):
 	prx=prx[fs<=fmax] ; prxs=prxs[fs<=fmax] ; pry=pry[fs<=fmax] ; prys=prys[fs<=fmax]
 	a1=a1[fs<=fmax] ; a2=a2[fs<=fmax] ; fs=fs[fs<=fmax]
 	
-	dphi=-np.arctan2(puy,pux)#+slopedPhaseOffset*fs/1e7 # phase offset is the angle from each recorded pump datapoint
+	dphi=-np.arctan2(puy,pux)+slopedPhaseOffset*fs/1e7+variablePhaseOffset # phase offset is the angle from each recorded pump datapoint
 #global variablePhaseOffset ; variablePhaseOffset=np.zeros(len(fs))
 	#pux , puy = pux*np.cos(dphi)-puy*np.sin(dphi) , puy*np.cos(dphi)+pux*np.sin(dphi)
 	#lplot([fs],[np.arctan2(puy,pux)])
@@ -1220,6 +1237,8 @@ def readFDTR(filename):
 
 	xs=xs[fs>=minimum_fitting_frequency] ; ys=ys[fs>=minimum_fitting_frequency] ; fs=fs[fs>=minimum_fitting_frequency]
 	Y = { "R":-xs/ys , "X":normalize(fs,xs) , "Y":normalize(fs,ys) , "M":normalize(fs,(xs**2.+ys**2.)**.5) , "P":np.arctan2(ys,xs)}[fitting]	
+	#if fitting=="P":
+	#	Y+=variablePhaseOffset
 	return fs,Y
 
 """
@@ -3989,9 +4008,17 @@ def updatePTPPB(paramsToPerturb,perturbBy):
 
 #perturb each assumed parameter, and check how each affects the result for the solved-for parameters. change d1 by 5%, observe Kz2 changes by 3%. change C2 by 5%, observe Kz2 changes by 5%, then combine, error=√(Σ[(x-xₚ)²]). "plotting" options include: none, show, save, showall
 # TODO: "if asymmetricUncertainty: sort into positives and negatives (see testing74.py)"
-def perturbUncertainty(fileToRead,paramsToPerturb='',perturbBy='',plotting="none",reprocess=True): 
+def perturbUncertainty(fileToRead,paramsToPerturb='',perturbBy='',plotting="none",reprocess=True,solveFunc=None): 
+	#conditionalPrint("perturbUncertainty",str(fileToRead)+","+str(paramsToPerturb)
+	if solveFunc is None: # measureContour1Axis and perturbUncertainty are both the rare exception to *just* using mode: eg, we still want to be able to pass in solveKZF shit
+		solveFunc={"func":solve,"kwargs":{"plotting":plotting}} # solveFunc should hold the func and a dict of kwargs
 
-	fout=figFile(fileToRead,"save",subfolder="perturbUncert").replace(".png",".uncert")
+	# filename for saving val,residual,remainingparamsfittedvals
+	if isinstance(fileToRead,list):
+		fout=figFile(lcs(filesToRead),"save",subfolder="perturbUncert").replace(".png",".uncert")
+	else:
+		fout=figFile(fileToRead,"save",subfolder="perturbUncert").replace(".png",".uncert")
+
 	if not reprocess and os.path.exists(fout):
 		print("READING IN PERTURB UNCERTAINTY RESULTS FROM FILE:",fout)
 		lines=open(fout,'r').readlines() # lines read: "tofit = Kz2,R1" and so on. so first split by "=", then split by ","
@@ -4015,9 +4042,9 @@ def perturbUncertainty(fileToRead,paramsToPerturb='',perturbBy='',plotting="none
 	paramsToPerturb,perturbBy=updatePTPPB(paramsToPerturb,perturbBy)
 
 	#SOLVE AT INITIAL PARAMETERS
-	conditionalPrint("perturbUncertainty","running for file: "+fileToRead+", solving first at initial parameters:",pp=True)
+	conditionalPrint("perturbUncertainty","running for file: "+str(fileToRead)+", solving first at initial parameters:",pp=True)
 	resultUnperturbed=[];RESo=100.
-	resultUnperturbed,[RESo,sigo]=solve(fileToRead,plotting=plotting[:4]) #tuple of results (K, G...), corresponding to tofit. plotting: pass through none, show, or save
+	resultUnperturbed,[RESo,sigo]=solveFunc["func"](fileToRead,**solveFunc["kwargs"]) #tuple of results (K, G...), corresponding to tofit. plotting: pass through none, show, or save
 	conditionalPrint("perturbUncertainty","--> "+str(resultUnperturbed))
 	tp_solved=copy.deepcopy(tp) #harvest solved-for TP, to use as our guesses for perturbed cases
 
@@ -4045,7 +4072,7 @@ def perturbUncertainty(fileToRead,paramsToPerturb='',perturbBy='',plotting="none
 		conditionalPrint("perturbUncertainty","",pp=True)
 
 		resultPerturbed=[];RESp=100.
-		resultPerturbed,[RESp,sigp]=solve(fileToRead,plotting=plotting)
+		resultPerturbed,[RESp,sigp]=solveFunc["func"](fileToRead,**solveFunc["kwargs"])
 		dRes=[]
 		#print(RESp,RESo)
 		if RESp<RESo: # TODO perturb up and find a lower residual? what about perturb down? we should check for that and warn for it too?
@@ -4067,7 +4094,7 @@ def perturbUncertainty(fileToRead,paramsToPerturb='',perturbBy='',plotting="none
 	#solving complete, restore old settings
 	tp=copy.deepcopy(tp_original) #restore
 	# REFIT USING STOCK PARAMETERS. (if you don't, solve > writeResultFile() will mean we're left with a perturbed result-file, which will mess up any subsequent solve(refit=False) runs. so *just in case*, we should refit
-	resultUnperturbed,[RESo,sigo]=solve(fileToRead,plotting=plotting[:4])
+	resultUnperturbed,[RESo,sigo]=solveFunc["func"](fileToRead,**solveFunc["kwargs"])
 	#compute sqrt(dKdA^2+dKdB^2+dKdC^2+...dKdN^2), sqrt(dGdA^2+dGdB^2+dGdC^2+...dGdN^2), sqrt(dEtcdE^2+dEtcdB^2+dEtcdC^2+...dKdN^2). "for each column in Dres ([[dKdA,dGdA,...],[dKdB,dGdB,...]...]), grab each row, square, sum, root.". nice of numpy to do this for us (squaring is done element-by-element. summing is elementwise as well (each element added to the next. here, "each element" will be each row. collapsing all rows into one. pow.5 is elementwise again as well, leaving the resulting list of uncertainties. noice.
 	delResults=np.asarray(delResults)
 	uncertainty=sum(delResults**2.)**.5
@@ -4781,13 +4808,23 @@ def comprehensiveUncertainty(fileSet,modes="123",kwargSets="",full=False):
 	conditionalPrint("comprehensiveUncertainty","finished modes "+modes+" : error = "+str(error))
 	return resCombined,error
 
+def mergeDict(dictA,dictB): # ASSUMING B DOES NOT OVERWRITE A. goes 2 layers deep
+	for k in dictB.keys():
+		if k not in dictA.keys():
+			dictA[k]={}
+		for k2 in dictB[k].keys():
+			if k2 not in dictA[k].keys():
+				dictA[k][k2]=dictB[k][k2]
+
 def asymmetricComprehensive(fileSet,modes="123",kwargSets="",full=False):
 	kwargSets=dict(kwargSets)
 	kwargSetDefaults={"solve":{"plotting":"save","refit":True},
 			"asymmetricSTD":{"plotting":"save"},
 			"perturbUncertainty":{"plotting":"none","reprocess":False},
 			"measureContour1Axis":{"plotting":"savefinal"} }
-	kwargSets.update(kwargSetDefaults) # adds unpopulated "default" elements into (without overwriting) user-defined dict
+	mergeDict(kwargSets,kwargSetDefaults) # adds unpopulated "default" elements into (without overwriting) user-defined dict
+	conditionalPrint("asymmetricComprehensive","running with passed kwargSets: "+str(kwargSets))
+
 	error=np.zeros((3,len(tofit),2)) # which uncertainty calculation method, which fitted parameter, uncertainty up vs down
 	results=np.asarray( [ solve(f,**kwargSets["solve"])[0] for f in fileSet ] ) # which file, which parameter
 	resCombined=np.mean(results,axis=0)
