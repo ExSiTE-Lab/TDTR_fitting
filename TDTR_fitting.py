@@ -606,6 +606,7 @@ def readResultFile(datafile): # datafile is NOT the results file. the datafile h
 	return r,e
 def writeResultFile(datafile,r,e):
 	conditionalPrint("writeResultFile",datafile)
+	datafile=datafile.strip("/")
 	datafile=datafile.replace('\\\\','/').replace('\\','/')
 	direc=datafile.split("/")[:-1]+[callingScript,datafile.split("/")[-1]]
 	#print(direc)
