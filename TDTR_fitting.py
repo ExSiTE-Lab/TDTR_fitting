@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*- #need this to accept unicode shenanigans below. TDTR_fitting.py is written by Thomas W. Pfeifer
-# v0.162 (goes with 0.72)
+# v0.163 (goes with 0.73)
 
 #USE CASE 1: STANDALONE: edit the below thermal properties, measurement parameters, and fitting settings, and execute "python TDTR_fitting.py" to have the file specified read in, fitting performed, and the specified thermal properties returned. 
 #USE CASE 2: EXTERNALLY CALLED: import this code into another python script via "from TDTR_fitting import *". Then, be sure to set the various thermal properties , measurement parameters, and fitting settings in your code (via the function "setVar(variableName,value)"), and call "solve" yourself. This allows you to process many files at once. 
@@ -606,12 +606,15 @@ def readResultFile(datafile): # datafile is NOT the results file. the datafile h
 	return r,e
 def writeResultFile(datafile,r,e):
 	conditionalPrint("writeResultFile",datafile)
-	datafile=datafile.strip("/")
+	#datafile=datafile.rstrip("/")
 	datafile=datafile.replace('\\\\','/').replace('\\','/')
-	direc=datafile.split("/")[:-1]+[callingScript,datafile.split("/")[-1]]
-	#print(direc)
-	outFile="/".join(direc).replace(".txt",".out")
-	os.makedirs("/".join(outFile.split("/")[:-1]),exist_ok=True)
+	direc="/".join( datafile.split("/")[:-1]+[callingScript] )
+	#if datafile[0]=="/":
+	#	direc="/"+direc
+	outFile=direc+"/"+datafile.split("/")[-1]
+
+	os.makedirs(direc,exist_ok=True)
+	conditionalPrint("writeResultFile",outFile)
 	with open(outFile,'w') as f:
 		#print(r,e)
 		f.write(" ".join(tofit)+"\n")
@@ -659,7 +662,7 @@ def solve(fileToRead,plotting="show",refit=True):
 	#print(stack)	# called by the fast contours code! 
 	if True not in mc1as:
 		writeResultFile(fileToRead,r,e)
-	return r,e	
+	return r,e
 
 def func(xs,*parameterValues,store=False,addNoise=False): # x axis points (time delays for TDTR, pump powers for SSTR, and so on). and a list of parameter values corresponding to tofit. func(*listVariable) notation pops list values out. var=["cat","dog"], func(*var) allows func() to hear func("cat","dog"). not passing anything for paremeterValues simply generates the decay function with the thermal property matrix as-is.
 	f={"TDTR":TDTRfunc,"SSTR":SSTRfunc,"pSSTR":SSTRfunc,"FDTR":FDTRfunc,"PWA":PWAfunc,"FD-TDTR":TDTRfunc}[mode]
@@ -2018,6 +2021,7 @@ def ss2(listOfFiles,listOfTypes="",plotting="show",settables="",refit=True,hybri
 		for k in settables.keys():	# update mode before reading in file. ALSO update things like "fitting=M" 
 			if k in ["fm","rpump","rprobe"]:
 				continue
+			conditionalPrint("ss2","calling setVar("+k+","+str(settables[k][i])+")")
 			setVar(k,settables[k][i])
 		fun={"TDTR":readTDTR,"SSTR":readSSTR,"PWA":readPWA,"FDTR":readFDTR,"pSSTR":readSSTR}[mode]
 		xs,ys=fun(f) ; Xs.append(xs) ; Ys.append(ys)
@@ -2030,6 +2034,7 @@ def ss2(listOfFiles,listOfTypes="",plotting="show",settables="",refit=True,hybri
 		del settables["rprobe"]
 	# fitting algorithm
 	conditionalPrint("ss2","preparing to run: "+str(listOfFiles)+" , "+str(settables)+" , "+str(tofit))
+	#printtp()
 	if len(tofit)>0:
 		# ITERATIVELY, CALL EACH APPROPRIATE MODEL FUNCTION, MINIMIZING DIFFERENCE
 		guesses=getTofitVals() #handle guesses
@@ -2697,6 +2702,8 @@ def readTDTR(filename,plotPhase=False):
 	#then do phase correction, trimming, normalization
 	if doPhaseCorrect:
 		xs,ys=phaseCorrect(xs,ys,ts,plotting=plotPhase) 	#phase correction: ΔY across t=0 should be zero, so check, and rotate entire system about origin: radius=√ X²+Y², simply changing angle
+		#if plotPhase:
+		#	return xs,ys
 	conditionalPrint("readTDTR","phased:"+str(ts)+", "+str(xs)+", "+str(ys))
 	xs=xs[ts>=minimum_fitting_time] ; ys=ys[ts>=minimum_fitting_time]
 	aux=aux[ts>=minimum_fitting_time] ; ts=ts[ts>=minimum_fitting_time] 	#trim to times above cutoff for fitting:
@@ -2751,6 +2758,7 @@ def readFiberSSTR(filename):
 	# columns are: Pu X, Pu X std, Pu Y, Pu Y std, Pr X, Pr X std, Pr Y, Pr Y std, aux 1, aux 2
 	PuX,PuY,PrX,PrY,Aux=[],[],[],[],[]
 	for l in lines[2:]:
+		#print(l)
 		if len(l)==0 or l[0]=="#":
 			continue
 		#print(l)
@@ -2998,6 +3006,32 @@ def importMatrix(filename,overrides=''):
 	lines=f.readlines()			
 	global tp
 	tp=[]
+	if "# thermal properties matrix and other parameters" in lines[0]: # THIS ISN'T A MATRIX FILE, IT'S A SYNTHETIC DATA FILE
+		def parse(l):
+			return [ float(v) for v in l.split(": ")[-1].replace("[","").replace("]","").split(",") ]
+			
+		for l in lines:
+			if "Cs:" in l:
+				Cs=parse(l)
+			elif "Kzs:" in l:
+				Kzs=parse(l)
+			elif "ds:" in l:
+				ds=parse(l)
+			elif "Krs:" in l:
+				Krs=parse(l)
+			elif "Gs:" in l:
+				Gs=parse(l)
+		for i in range(len(Cs)):
+			C,Kz,d,Kr=Cs[i],Kzs[i],ds[i],Krs[i]
+			tp.append([C,Kz,d,Kr])
+			if i!=len(Gs):
+				G=Gs[i] ; R=1/G
+				if useTBR:
+					tp.append([R])
+				else:
+					tp.append([G])
+		return
+
 	for line in lines:			# for each line in the file
 		if "C" in line and "Kz" in line and "Kr" in line: # skip first line "C, Kz, d, Kr..."
 			continue
@@ -3099,7 +3133,7 @@ def phaseCorrect(xs,ys,ts,plotting=False,n=2): #apply phase correction: get pre-
 	dphi=-np.arctan2(dy,dx)#-0.003*np.pi*2 # phase offset is the angle (height of hump in x vs y)
 	conditionalPrint("phaseCorrect","dphi="+str(dphi))
 	if np.isnan(dphi):
-		return xs,ys
+		dphi=0
 	#xfixed=xs*np.cos(dphi)-ys*np.sin(dphi) # Braun "The role of compositional..." Eq 3.68
 	#yfixed=ys*np.cos(dphi)+xs*np.sin(dphi)
 	zfixed=(xs+1j*ys)*np.exp(1j*dphi) ; xfixed=zfixed.real ; yfixed=zfixed.imag # value*eⁱᶱ is the same as rotating by θ
@@ -3176,6 +3210,8 @@ def setParam(paramName,value,warning=True): # setParam: during fitting, we updat
 	# Step 2: if we haven't returned, we must have a param that doesn't go in "tp" global. check aliases, and set the globals
 	if paramName in paramAliases.keys():
 		paramName=paramAliases[paramName]
+	#if isinstance(value,str) and "{" in value:
+	#	value=dict(value)
 	# Step 3: set globals
 	globals()[paramName]=value
 	# Step 4: also issue warnings if the user is trying to write to a parameter that *may* be read in via autos()
@@ -3289,10 +3325,14 @@ def getTofitVals():#read the values corrosponding to the variable names in tofit
 		values.append(getParam(name))
 	return values
 
-customBounds={} # customBounds["Kz2"]=[lower,upper]
+customBounds={} #; customBounds['Kz2']=[32.,34.]
+#customBounds={"Kz2":[32,34]}
 def lookupBounds():
 	bnds=[[],[]] #set up bounds (done based on fitting parameter type (Ks use different bounds from Cs)
+	if len(customBounds.keys())>0:
+		conditionalPrint("lookupBounds","custom bounds: "+str(customBounds)) # +" (keys: "+str(customBounds.keys())+")")
 	for param in tofit:
+		conditionalPrint("lookupBounds","checking parameter "+param+".")
 		if isTPparam(param):
 			for c in "1234567890":
 				param=param.replace(c,"")
@@ -3300,8 +3340,8 @@ def lookupBounds():
 			param=paramAliases[param]
 		lb=lbs[param];ub=ubs[param]
 		if param in customBounds.keys():
-			conditionalPrint("lookupBounds","using custom bounds:"+str(lb)+"<"+param+"<"+str(ub))
 			lb,ub=customBounds[param]
+			conditionalPrint("lookupBounds","using custom bounds:"+str(lb)+"<"+param+"<"+str(ub))
 		bnds[0].append(lb) ; bnds[1].append(ub)
 	return bnds
 """
@@ -3752,7 +3792,10 @@ def displayContour3D(csvFile='', plotting="show", residuals='', ranges='', label
 	from matplotlib.path import Path
 	import matplotlib.patches as patches
 
-	fig = plt.figure() ; ax = fig.gca(projection='3d')
+	
+	fig = plt.figure()
+	#ax = fig.gca(projection='3d')
+	ax = fig.add_subplot(projection = '3d')
 
 	levels=np.asarray(levels)
 
@@ -4458,20 +4501,22 @@ def mc1aWorker(args):
 	setVar("quietWarnings",True)
 	conditionalPrint("mc1aWorker","running with args:"+str(args))
 	v,paramOfInterest,customParamControl,plotting,solveFunc,fs,tp_old,i=args # multiprocessing pool.map only allows 1 arg, so we must cram into a list
+	#global tp ; tp=copy.deepcopy(tp_old)
 	setParam(paramOfInterest,v) # set the parameter value
 	if type(customParamControl)!=str: # allow the running of custom code here (used for KZF, with nonstandard params)
 		customParamControl(v)
 	p={True:"show",False:"none"}["iter" in plotting]
 	#global altFname ; altFname="contPics/"+str(i)+".png"
 	#r,e=solveFunc(fs,plotting="none") # solve it. anything but none plotting crashes the system
+	#print("mc1aWorker","ss2",tp,solveFunc["kwargs"])
 	try: # possible to get fitting errors like "max iterations encountered" and such, so just ignore 'em if so. 
 		r,e=solveFunc["func"](fs,plotting="none",**solveFunc["kwargs"]) # solve it. anything but none plotting crashes the system
 	except Exception as exc:
 		r=np.zeros((len(tofit))) ; e=[1,1]
 		print("mc1aWorker encountered an error:",exc)
 	#print(i,v,r,e)
-	tp=copy.deepcopy(tp_old) # restore tp after solve, so it's prepped for the next val (else, we may get trapped in local minima)
-
+	#tp=copy.deepcopy(tp_old) # restore tp after solve, so it's prepped for the next val (else, we may get trapped in local minima)
+	#print("mc1aworker","ss2",r,e)
 	return r,e # in theory we've standardized all solve functions to return "[param1Result,param2result,...],[residual,stdev]", even solveSimult, which passes the max of the N simultaneous TDTR scans' residuals. 
 
 def read1AxisContour(fout):
@@ -4489,13 +4534,15 @@ def read1AxisContour(fout):
 	return vals,residuals,params,paramVals
 
 # This used to just be called by predictUncert (generate a fake data file, run contour uncertainty on it), but I found myself writing more and more testing scripts which used this (e.g. testing74.py) and thought it a good idea to break it off into its own function. really all we do is call TDTRfunc / SSTRfunc / PWAfunc / FDTRfunc, but this at least provides a standardized set of default x axis spacing values (time delays / power values / time points for square wave / frequencies)
+synetheticMaxTDTR=5.5e-9 ; syntheticMaxFDTR=7
 def makeSyntheticDataset(fout,addedNoise=0):
 	# cycle through (potentially multiple) files to generate
-	x_dict={"TDTR":np.logspace(np.log(300e-12)/np.log(10),np.log(5.5e-9)/np.log(10),30) ,
+	x_dict={"TDTR":np.logspace(np.log(300e-12)/np.log(10),np.log(synetheticMaxTDTR)/np.log(10),30) ,
 		"SSTR":np.linspace(getVar("Pow")/100,getVar("Pow"),30) , 
-		"FDTR":np.logspace(2,7,100) , 
+		"FDTR":np.logspace(2,syntheticMaxFDTR,100) , 
 		"PWA":np.linspace(0,1/fm,1024,endpoint=False) }
 	xs=x_dict[mode]
+	conditionalPrint("makeSyntheticDataset","saving to file: "+fout)
 	ys=func(xs,store=fout,addNoise=addedNoise)
 	return ys
 
@@ -4503,7 +4550,7 @@ def makeSyntheticDataset(fout,addedNoise=0):
 # predictUncert > measureContour1Axis > parallel > mc1aWorker > solve or ss2 > ss3h
 # in versions >= 0.152, predictUncert takes settables dict instead of making dumbass assumptions based on ss2Glos. measureContour1Axis takes solveFunc dict too, which cascades ss2Types (mode, via solveFunc["kwargs"]=dict, passed into ss2's kwarg "listOfTypes") through. the new ss2 also must now manually infer fm,rpu,rpr from the files themselves! (TODO, this may not be good). ss2 then populates dict "settables" which is handled by ss3h
 # why the re-write of this entire chain? it makes preductUncert much *much* cleaner when trying your "atypical" stuff like mfSSTR or SSTR+TDTR (predictUncert's "settables" ought to handle it all)
-def predictUncert(settables="",addedNoise=0.0,regen=True,threshold=.025,nworkers=3,subdir="tdtrcache"):
+def predictUncert(settables="",addedNoise=0.0,regen=True,threshold=.025,nworkers=3,subdir="tdtrcache",npts=100,ranges=""):
 	settables=dict(settables) # DICT IN ARG DEFAULTS MEANS DICT CONTENTS ARE KEPT BETWEEN RUNS, AND YOU CAN'T RERUN FOR DIFFERENT MODES!!!
 	# default to current mode if no settables passed
 	global mode
@@ -4527,10 +4574,15 @@ def predictUncert(settables="",addedNoise=0.0,regen=True,threshold=.025,nworkers
 		kwargs={"listOfTypes":settables["mode"],"settables":kwargs}
 
 		solver={"func":ss2,"kwargs":kwargs}
-	
+
+	#if not regen:
+	#	solver["kwargs"]["refit"]=False
 	p=tofit[0] ; v=getParam(p)
-	solver["func"](fnames,plotting="save",**solver["kwargs"])
-	valRange,fout=measureContour1Axis(fnames, p, plotting="savefinal", resolution=120, ranges=[v*.25,v*1.75], extend=False, threshold=threshold, nworkers=nworkers, solveFunc=solver,overwrite=regen)	# mC1A > solve > various depending on mode
+	#solver["func"](fnames,plotting="save",**solver["kwargs"],refit=regen) # WHY TF SHOULD IT FIT THE DATA WE JUST MADE? WE JUST MADE IT!
+	if len(ranges)==0:
+		ranges=[v*.25,v*1.75]
+
+	valRange,fout=measureContour1Axis(fnames, p, plotting="savefinal", resolution=npts, ranges=ranges, extend=False, threshold=threshold, nworkers=nworkers, solveFunc=solver,overwrite=regen)	# mC1A > solve > various depending on mode
 	return valRange
 
 # loosely based on testing68.py. we revamped preductUncert to accept a dict of "settables" which we use to generate our fake data file(s), and then run solve or ss2 accordingly. ss2
@@ -4920,13 +4972,14 @@ def readCompOut(filename): # comprehensiveUncertainty allows saving results to a
 
 layerNames=[] # you can use setVar for this, to label each layer. we either put "d1","Kz2" etc in the legend, OR, if you've supplied material names for each layer, "d_Al","Kz_Al2O3" etc
 normalizeSensitivity=False ; sensitivityAsPercent=False
-def sensitivity(percentPerturb=.1,plotting="show",title="",customPerturbs={'rpu':.1,'rpr':.1},xs=""): #for all parameters in "tofit", perturb them by n%, and check the change to the TDTR delay curve. this is indicative of how sensitive one is to that parameter (how easily one is able to extract this property). note: "plotting" options include: show, save, none. customPerturbs allows us to play with our percentPerturb on an individual-parameter level. Eg, maybe i'm not measuring my 10um diameter beam spot to the nanometer, and i want to see what happens if my beam spot size is doubled (perturb by 100%). default percentPerturb is fine when all parameters have equal footing (eg, for fitting), but if you're using sensitivity() to check for the influence of an assumed parameter and suspect there's a possibility that your assumed value may be way off, you can use customPerturbs
+def sensitivity(percentPerturb=.01,plotting="show",title="",customPerturbs={'rpu':.1,'rpr':.1},xs=""): #for all parameters in "tofit", perturb them by n%, and check the change to the TDTR delay curve. this is indicative of how sensitive one is to that parameter (how easily one is able to extract this property). note: "plotting" options include: show, save, none. customPerturbs allows us to play with our percentPerturb on an individual-parameter level. Eg, maybe i'm not measuring my 10um diameter beam spot to the nanometer, and i want to see what happens if my beam spot size is doubled (perturb by 100%). default percentPerturb is fine when all parameters have equal footing (eg, for fitting), but if you're using sensitivity() to check for the influence of an assumed parameter and suspect there's a possibility that your assumed value may be way off, you can use customPerturbs
 	conditionalPrint("sensitivity","",pp=True)
 	if len(xs)==0:
 		xs={    "TDTR":np.linspace(minimum_fitting_time,5500e-12,40) , 
 			#"TDTR":np.linspace(minimum_fitting_time,1.9e-6,1000) , 
 			"SSTR":np.linspace(0,getVar("Pow"),10) , 
-			"FDTR":np.logspace(2,8,100) , 
+			#"FDTR":np.logspace(2,8,100) , 
+			"FDTR":np.logspace(4.5,7.1,100) ,
 			"PWA":np.linspace(0,1/fm,100,endpoint=False) ,
 			"FD-TDTR": np.linspace(minimum_fitting_time,5500e-12,40) }[mode]
 	#f={"TDTR":TDTRfunc , "SSTR":SSTRfunc , "FDTR":FDTRfunc , "PWA":PWAfunc , "FD-TDTR":TDTRfunc}[mode]
@@ -4949,18 +5002,20 @@ def sensitivity(percentPerturb=.1,plotting="show",title="",customPerturbs={'rpu'
 		S=origVals ; dS=perturbedVals-origVals # "how much did the resulting curve change by"
 		conditionalPrint("sensitivity","signal changes by"+str(np.mean(dS[1:]/S[1:])*100)+"%")
 		if sensitivityAsPercent:
-			#dSdP[i,:]=dS/percentPerturb	     # discussion: this was our original strategy, but it's wrong. technically, below, 
-			#dSdP[i,:]=P/dP*dS/S		     # [(dS/S)*(P/dP)], is "correct", but it also serves to "cancel out" our custom perturbs. 
-			#dSdP[i,:]=dS/S/(percentPerturb/100) # doing below instead [(dS/S)/(defaultPercent)] yields the same result, without 
-			#dSdP[i,:]=dS/(percentPerturb/100)   # "cancelling". one problem still, is for PWAfunc, S may be small (where the PWA func 
-			div=dS/S/(percentPerturb/100)	     # crosses zero), so dividing by blows up the result. any small "shift" in time of your zero-
-			if mode=="PWA":			     # crossing is trouble. for PWA specifically, we can simply mask out small values (small in 
-				mask=np.zeros(len(dS))	     # either perturbed or original). Of course, is looking at "percent change" in the curve 
-				mask[abs(S)<.25]=1	     # right? *anywhere* the curve is small, we're amplifying our sensitivity. Eg, the tail end 
-				mask[abs(perturbedVals)<.25]=1 # of a TDTR curve. personally, i'd say this is wrong and misleading, given that least-
-				div=np.zeros(len(dS))	     # squares fitting is trying to minimize the nominal deviation, not the percent. using
-				div[mask==0]=dS[mask==0]/S[mask==0]/(percentPerturb/100) # percent, it would be easy to "fool" yourself into believing
+			# Eq 1 from: Gundrum, Cahill, Averback "Thermal Conductance of metal-metal interfaces" PRB 72, 245426 (2005)
+			#div=( np.log(S+dS)-np.log(S) )/( np.log(P+dP)-np.log(P) ) # Sα = d ln(-Vᵢₙ/Vₒᵤₜ) / d ln(α), 
+			# OR, percent-change-in S / percent-change-in-α. found in Hopkins' Lab Sensitivity matlab code (e.g. SensitivityCode_time.m)
+			# This is mathematically identical and is mathematically identical (log(V+dV)-log(V) tells you how much V changed)
+			div=dS/S/(percentPerturb/100) # note technically (dS/S)*(P/dP) is "correct", but this cancels out our custom perturbs
+			# BEWARE FOR EITHER: this expression over-estimates the sensitivity where the function is small. e.g. PWA sensitivity blows up
+			#  near zero-crossings, and TDTR sensitivity might lead you to believe it is better to measure certain parameters at long
+			#  time delays. I can't say for sure, but I suspect this is why Schmidt got rid of the natural log in the numerator (see below)
+			# for PWA code using this method (don't), see old version of TDTR_fitting.py, versions 0.162 or prior
 		else:					     # irrelevant regions of the curve are important (long time delays in TDTR)
+			# Eq 10 from: Schmidt, Cheaito, Chiesa "A frequency-domain thermoreflectance method for the characterization of thermal 
+			#div=dS/(np.log(P+dP)-np.log(P)) # Sₓ = dϕ / d ln(x)                                  properties" RSI 80, 094901 (2009). 
+			# OR, nominal-change-in-S / percent-change-in-x. Same as above, This is mathematically identical (log(P+dP)-log(P) tells you 
+			#  how much P changed)
 			div=dS/(percentPerturb/100)
 		dSdP[i,:]=div
 		dPs.append(perturbedVals)

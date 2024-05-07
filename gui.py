@@ -1,5 +1,5 @@
-# v0.71 (goes with 0.161)
-import matplotlib,time,threading,os,sys
+# v0.73 (goes with 0.163)
+import matplotlib,time,datetime,threading,os,sys
 import tkinter as tk
 import multiprocessing ; multiprocessing.freeze_support() # https://stackoverflow.com/questions/32672596/pyinstaller-loads-script-multiple-times
 from tkinter import filedialog,ttk
@@ -701,6 +701,8 @@ def out(printstring):
 	log("[output] : "+printstring)
 def log(logstring):
 	f=open("gui.log",'a+')
+	now=datetime.datetime.now() ; now=now.strftime("%Y-%m-%d_%H:%M:%S")
+	f.write(now+"\n")
 	f.write(logstring+"\n")
 	f.close()
 
