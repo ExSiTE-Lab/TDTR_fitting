@@ -177,7 +177,7 @@ def Gkomega(ks="",omegas="",partial=False):
 #ΔT𝘴𝘶𝘳𝘧𝘢𝘤𝘦(ω)=A₁/2*π ∫ k*Ĝ(k,ω)*exp(-k²*(rᵣ²+rᵤ²)/8)*dk ; from 0 to ∞ #Schmidt eq 8 (analagous to Jiang's ΔT𝘴𝘶𝘳𝘧𝘢𝘤𝘦(ω)=A₁ ∫ Ĝ(k,ω)*exp(-π²*k²*w₀²)*2*π*k*dk)
 from scipy.integrate import trapz,simps,romb,quad
 from scipy.special import jv,erf
-pumpShape="gaussian" ; xoff=10e-6
+pumpShape="gaussian" ; probeShape="gaussian" ; xoff=10e-6
 hybridFactors=[1] # TODO currently hybridFactors are used in the order: gaussian,tophat,ring,offset. ideally we'd follow whatever order is in pumpShape (e.g. pumpShape="ring+tophat" would reverse the order)
 #@profile
 def delTomega(omegas,gkomega="",radii="",integration="trapz"):
@@ -194,7 +194,18 @@ def delTomega(omegas,gkomega="",radii="",integration="trapz"):
 	# Hankel transform of a gaussian spot:
 	# p(r)=2*A/π/rᵤ²*exp(-2*r²/rᵤ²) [Jiang 2.10] -> H(k)=2π∫f(r)*J(k*r*2*π)*k dr -> p(k)=A*exp(-π²k²rᵤ²/2) [Jiang 2.11]
 	# p(r)=2*A/π/rᵤ²*exp(-2*r²/rᵤ²) [Jiang 2.10] -> H(k)=∫f(r)*J(k*r)*k dr -> p(k)=A/2/π*exp(-k²rᵤ²/8) [Schmidt 5]
-	Hprobe=np.exp(-1.*ks**2.*(r2**2.)/8.)
+	if probeShape=="gaussian" or r2==0:
+		Hprobe=np.exp(-1.*ks**2.*(r2**2.)/8.)
+	else:
+		rs=np.linspace(0,r2*5,1000) ; pr=np.zeros(1000)
+		if "tophat" in probeShape:
+			pr[rs<=r2]=np.ones(len(rs[rs<=r2]))*1/(np.pi*r2**2) # tophat heating, 1 inside ro, 0 outside
+		#if "gaussian" in probeShape:
+		#	pr[:]=2/np.pi/r2**2*np.exp(-2*rs**2/r2**2)
+		dr=rs[1]-rs[0] ; integ=np.sum(pr*rs)*dr*2*np.pi
+		pr*=1/integ*2*np.pi
+		Hprobe=np.sum( pr*jv(0, np.outer(ks,rs))*rs , axis=1)*dr # [ nth k, nth r], flattened in terms of r	
+	#print("sum Hprobe",np.sum(Hprobe))
 	if pumpShape=="gaussian":
 		Hpump=1/2/np.pi*np.exp(-1.*ks**2.*(r1**2.)/8.) # 1D, [nth k].
 	elif pumpShape=="ring":
@@ -1429,7 +1440,7 @@ def pumpWaveform(*args):
 		ys=np.zeros(len(ts))
 		n=fp/fm ; N=int(len(ts)/n) #; print(n,N)
 		ys[0::N]=1 ; ys*=np.sin(ts*fm*2*np.pi)/2+.5
-		#plot([ts],[ys],plotting="show")
+		#lplot([ts],[ys],plotting="show")
 		return ys
 	def sine(ts,fm):
 		return np.sin(ts*fm*2*np.pi)/2+.5
@@ -2002,7 +2013,7 @@ def ss2(listOfFiles,listOfTypes="",plotting="show",settables="",refit=True,hybri
 	# handle "magic" files
 	for f in listOfFiles:
 		if "magic" in f:
-			processMagic(f,settables)
+			processMagic(f,settables)	# populated "settables", which means mode from magicMods overrides all! 
 	listOfFiles=[ f for f in listOfFiles if "magic" not in f ]
 	# handle listOfTypes (overrides settables["mode"] if populated)
 	if "mode" not in settables.keys():
@@ -2977,9 +2988,10 @@ def readDataHeader(firstline): # TODO this needs a serious unit test...
 							if k == pref:
 								scale=unitPrefixes[k]
 								break
+			
 			num = "".join( [ c for c in p if c in "-0123456789.e" ] )
-			if len(num)>0 and num!="e" and num.count(".")<2 and num.count("e")<2 and num[0]!='e':
-				#print(num)
+			# reject empty. reject "..". reject "ee". reject "e4". require at least one number
+			if len(num)>0 and num!="e" and num.count(".")<2 and num.count("e")<2 and num[0]!='e' and sum([num.count(c) for c in "123456789"])>0:
 				val=float(num)
 			if (len(unit)>0 or len(vardict[key][1])==0) and val>0: # if this is a full set (number+unit)
 				#print(key,sub,"=",val,"*",scale,unit)
@@ -3686,6 +3698,8 @@ def genContour2D(fileIn,fileOut='',paramRanges='',paramResolutions='',overwrite=
 	xlb=paramRanges[0][0];xub=paramRanges[0][1];xr=paramResolutions[0]
 	ylb=paramRanges[1][0];yub=paramRanges[1][1];yr=paramResolutions[1]
 
+	#xlb=0 ; xub=15e-9 ; ylb=0 ; yub=500
+
 	global solveResidualOnly
 
 	def solveResidualOnly(parameterValues,fileIn):
@@ -3810,7 +3824,7 @@ def displayContour3D(csvFile='', plotting="show", residuals='', ranges='', label
 		i=np.where(levels==threshold)[0][0]
 		if i<len(CS.collections):
 			CS.collections[i].set_color('red')
-			CS.collections[i].set_alpha(6*alpha)
+			CS.collections[i].set_alpha(min(6*alpha,1))
 
 	ax.view_init(elev=elevAzi[0], azim=elevAzi[1])
 
@@ -3838,10 +3852,10 @@ def displayContour3D(csvFile='', plotting="show", residuals='', ranges='', label
 		plt.show()
 	elif len(fignames)>0:
 		for f in fignames:
-			plt.savefig(f.replace(".csv",".png"))
+			plt.savefig(f.replace(".csv",fileSuffix))
 	else:
 		if plotting=="save":
-			fout=csvFile.replace(".txt",".png")
+			fout=csvFile.replace(".txt",fileSuffix)
 		else:
 			fout=plotting
 		plt.savefig(fout)
@@ -4081,7 +4095,7 @@ def perturbUncertainty(fileToRead,paramsToPerturb='',perturbBy='',plotting="none
 	#COPY OFF PRE-EXISTING SETTINGS
 	global tp,autorpu,autorpr,autofm
 	tp_original,autorpu_original,autorpr_original,autofm_original=copy.deepcopy(tp),autorpu,autorpr,autofm #save settings
-
+	
 	# no paramsToPerturb passed, OR, perturb names and values don't match, then we'll do defaulting:
 	paramsToPerturb,perturbBy=updatePTPPB(paramsToPerturb,perturbBy)
 
@@ -4098,7 +4112,7 @@ def perturbUncertainty(fileToRead,paramsToPerturb='',perturbBy='',plotting="none
 	for P,dP in zip(paramsToPerturb,perturbBy): #for each parameter and perturbation pair, re-solve. store off dK, dG, dEtc
 		if P in tofit: #ask us to perturb a parameter we're fitting for? skip it
 			conditionalPrint("perturbUncertainty","(skipping: "+P+" is being fitted for)")
-			delResults.append([0,0])
+			delResults.append([0]*len(tofit))
 			continue
 
 		 #solve>readTDTR can read pump, probe radii, and modulation frequency. turn them off after we've read them one, so our perturbations of those values works. 
@@ -4140,6 +4154,7 @@ def perturbUncertainty(fileToRead,paramsToPerturb='',perturbBy='',plotting="none
 	# REFIT USING STOCK PARAMETERS. (if you don't, solve > writeResultFile() will mean we're left with a perturbed result-file, which will mess up any subsequent solve(refit=False) runs. so *just in case*, we should refit
 	resultUnperturbed,[RESo,sigo]=solveFunc["func"](fileToRead,**solveFunc["kwargs"])
 	#compute sqrt(dKdA^2+dKdB^2+dKdC^2+...dKdN^2), sqrt(dGdA^2+dGdB^2+dGdC^2+...dGdN^2), sqrt(dEtcdE^2+dEtcdB^2+dEtcdC^2+...dKdN^2). "for each column in Dres ([[dKdA,dGdA,...],[dKdB,dGdB,...]...]), grab each row, square, sum, root.". nice of numpy to do this for us (squaring is done element-by-element. summing is elementwise as well (each element added to the next. here, "each element" will be each row. collapsing all rows into one. pow.5 is elementwise again as well, leaving the resulting list of uncertainties. noice.
+	print(delResults)
 	delResults=np.asarray(delResults)
 	uncertainty=sum(delResults**2.)**.5
 
@@ -4163,11 +4178,14 @@ def monteCarlo(fileToRead,paramsToPerturb='',perturbBy='',N=10,returnFull=False)
 
 	vals=np.asarray( [ getParam(p) for p in paramsToPerturb ] ) # original values of each
 	vals=vals[None,:]+vals[None,:]*perturbs/100 # combinations of perturbed values
-	
+	#print(paramsToPerturb,vals)
 	# TODO WARNING: IF AUTORPU IS NOT SET TO FALSE, WE WON'T MONTE OVER RPU (ditto with rpr). THIS IS DIFFERENT BEHAVIOR FROM perturbUncertainty()
 	# TODO also need to auto-populate paramsToPerturb if none passed	
+	if isinstance(fileToRead,str):
+		args=[(vs,paramsToPerturb,solve,fileToRead,getVar("tp"),i) for i,vs in enumerate(vals)]
+	else: # TODO WATCH OUT! currently we don't pass any sort of ss2Types information (denotes what kind of data the files are). you MUST specify 
+		args=[(vs,paramsToPerturb,ss2,fileToRead,getVar("tp"),i) for i,vs in enumerate(vals)] # types inside a magicMods file: "mode='TDTR'" and so on
 
-	args=[(vs,paramsToPerturb,solve,fileToRead,getVar("tp"),i) for i,vs in enumerate(vals)]
 	results=parallel(monteWorker,args)
 	if returnFull:
 		return results
@@ -5001,21 +5019,23 @@ def sensitivity(percentPerturb=.01,plotting="show",title="",customPerturbs={'rpu
 		P=initParams[i] ; dP=perturbedParams[i]-initParams[i] # "how much did we change this parameter by"
 		S=origVals ; dS=perturbedVals-origVals # "how much did the resulting curve change by"
 		conditionalPrint("sensitivity","signal changes by"+str(np.mean(dS[1:]/S[1:])*100)+"%")
-		if sensitivityAsPercent:
-			# Eq 1 from: Gundrum, Cahill, Averback "Thermal Conductance of metal-metal interfaces" PRB 72, 245426 (2005)
-			#div=( np.log(S+dS)-np.log(S) )/( np.log(P+dP)-np.log(P) ) # Sα = d ln(-Vᵢₙ/Vₒᵤₜ) / d ln(α), 
-			# OR, percent-change-in S / percent-change-in-α. found in Hopkins' Lab Sensitivity matlab code (e.g. SensitivityCode_time.m)
-			# This is mathematically identical and is mathematically identical (log(V+dV)-log(V) tells you how much V changed)
+		# A. Eq 1 from: Gundrum, Cahill, Averback "Thermal Conductance of metal-metal interfaces" PRB 72, 245426 (2005)
+		# Sα = d ln(-Vᵢₙ/Vₒᵤₜ) / d ln(α)
+		# B. Eq 10 from: Schmidt, Cheaito, Chiesa "A frequency-domain thermoreflectance method for the characteriza..." RSI 80, 094901 (2009). 
+		# Sₓ = d ϕ / d ln(x)
+		# C. Hopkins' Lab Sensitivity matlab code (e.g. SensitivityCode_time.m)
+		# R=-Vᵢₙ/Vₒᵤₜ (l85) ; Rperturbed=-Vᵢₙ/Vₒᵤₜ (l179) ; dP=Pperturbed-P (l150) ; S=(Rp-R)/(dP*R) (l180)
+		# Note A+C are mathematically the same! d(ln(Z)) tells you the percentage change
+		# so A+C are all in effect "the percent change in the curve" d(ln(curve)) "divided by the percent change in the parameter" d(ln(x))
+		# BEWARE: this expression over-estimates the sensitivity where the function is small. e.g. PWA sensitivity blows up near zero-crossings
+		# and TDTR sensitivity might lead you to believe it is better to measure certain parameters at long time delays. I can't say for sure,
+		# but I suspect this is why Schmidt got rid of the natural log in the numerator. for PWA code using this method (don't), see old version 								
+		# of TDTR_fitting.py, versions 0.162 or prior
+		if sensitivityAsPercent: # PERCENT CHANGE IN CURVE vs PERCENT CHANGE IN THE PARAMETER
+			#div=( np.log(S+dS)-np.log(S) )/( np.log(P+dP)-np.log(P) ) 
 			div=dS/S/(percentPerturb/100) # note technically (dS/S)*(P/dP) is "correct", but this cancels out our custom perturbs
-			# BEWARE FOR EITHER: this expression over-estimates the sensitivity where the function is small. e.g. PWA sensitivity blows up
-			#  near zero-crossings, and TDTR sensitivity might lead you to believe it is better to measure certain parameters at long
-			#  time delays. I can't say for sure, but I suspect this is why Schmidt got rid of the natural log in the numerator (see below)
-			# for PWA code using this method (don't), see old version of TDTR_fitting.py, versions 0.162 or prior
-		else:					     # irrelevant regions of the curve are important (long time delays in TDTR)
-			# Eq 10 from: Schmidt, Cheaito, Chiesa "A frequency-domain thermoreflectance method for the characterization of thermal 
-			#div=dS/(np.log(P+dP)-np.log(P)) # Sₓ = dϕ / d ln(x)                                  properties" RSI 80, 094901 (2009). 
-			# OR, nominal-change-in-S / percent-change-in-x. Same as above, This is mathematically identical (log(P+dP)-log(P) tells you 
-			#  how much P changed)
+		else: # NOMINAL CHANGE IN CURVE vs PERCENT CHANGE IN THE PARAMETER
+			#div=dS/(np.log(P+dP)-np.log(P))
 			div=dS/(percentPerturb/100)
 		dSdP[i,:]=div
 		dPs.append(perturbedVals)

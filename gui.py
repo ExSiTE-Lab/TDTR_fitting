@@ -680,6 +680,7 @@ def ask(multiple=True,fileOrDirec="file",text=""):
 	if lastDirec=="./" and len(files)>0:
 		lastDirec="/".join(files[-1].split("/")[:-1])
 	# ask user for files:
+	window.update() # Trying this to see if it gets rid of hanging issues on mac: https://stackoverflow.com/questions/21866537/what-could-cause-an-open-file-dialog-window-in-tkinter-python-to-be-really-slow
 	if fileOrDirec=="file":
 		if multiple:
 			text={True:text,False:"Open"}[len(text)>0]
