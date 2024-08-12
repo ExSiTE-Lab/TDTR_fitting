@@ -1,4 +1,4 @@
-# v0.73 (goes with 0.163)
+# v0.74 (goes with 0.164)
 import matplotlib,time,datetime,threading,os,sys
 import tkinter as tk
 import multiprocessing ; multiprocessing.freeze_support() # https://stackoverflow.com/questions/32672596/pyinstaller-loads-script-multiple-times
@@ -299,8 +299,10 @@ fields={"rpr"      :{"alias":"probe r (μm)"   ,"setter":setRad  ,"getter":getRa
 		     "type":"drop" ,"value":"no;yes;no"      ,"where":"US3"},
 	"sensitivityAsPercent":{"alias":"sens. as %","setter":setBool,"getter":getBool,
 		     "type":"drop" ,"value":"no;yes;no"      ,"where":"US3"},
-	"runAvgPWA":{"alias":"run. avg."     ,"setter":setVar    ,"getter":getVar     ,
-		     "type":"entry","value":0                ,"where":"PWA"},
+	#"runAvgPWA":{"alias":"run. avg."     ,"setter":setVar    ,"getter":getVar     ,
+	#	     "type":"entry","value":0                ,"where":"PWA"},
+	"dutyCycle":{"alias":"duty"     ,"setter":setVar    ,"getter":getVar     ,
+		     "type":"entry","value":50                ,"where":"PWA"},
 	"mapMode"  :{"alias":"map mode"      ,"setter":setGuiVar ,"getter":getGuiVar  ,
 		     "type":"drop" ,"value":"dR/R;dR/R;Aux;fitted","where":"SSTR"},
 	"auxRange" :{"alias":"aux min,max"   ,"setter":setGuiVar ,"getter":getGuiVar  ,
@@ -1055,11 +1057,14 @@ def viewMap(event,rerun=False):
 @wrapper
 def steadyFreq(event): # secret function, generated Jeff's Fig 2 from
 	materials=["","Al2O3","Quartz","Si","SiO2"]
+	l1=[C_Al,K_Al,80e-9,"Kz"] ; l2=[ {True:1/200e6,False:200e6}[getVar("useTBR")]]
+	matStacks={"Al2O3":[l1,l2,[C_Sapph,K_Sapph,1,"Kz"]] , "Quartz":[l1,l2,[C_Quartz,K_Quartz_through,1,K_Quartz_in]] , "Si":[l1,l2,[C_Si,K_Si,1,"Kz"]] , "SiO2":[l1,l2,[C_SiO2,K_SiO2,1,"Kz"]]}
 	freqs=np.logspace(-1,7,1000)
 	Ms=[]
 	for mat in materials:
 		if len(mat)>0:
-			importMatrix("testscripts/calmats/Fiber_"+mat+"_cal_matrix.txt")
+			setVar("tp",matStacks[mat])
+			#importMatrix("testscripts/calmats/Fiber_"+mat+"_cal_matrix.txt")
 		popGlos()
 		Z=delTomega(2*np.pi*freqs)
 		M=np.sqrt(Z.real**2+Z.imag**2)

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*- #need this to accept unicode shenanigans below. TDTR_fitting.py is written by Thomas W. Pfeifer
-# v0.163 (goes with 0.73)
+# v0.164 (goes with 0.74)
 
 #USE CASE 1: STANDALONE: edit the below thermal properties, measurement parameters, and fitting settings, and execute "python TDTR_fitting.py" to have the file specified read in, fitting performed, and the specified thermal properties returned. 
 #USE CASE 2: EXTERNALLY CALLED: import this code into another python script via "from TDTR_fitting import *". Then, be sure to set the various thermal properties , measurement parameters, and fitting settings in your code (via the function "setVar(variableName,value)"), and call "solve" yourself. This allows you to process many files at once. 
@@ -1112,16 +1112,20 @@ def solveFDTR(fileToRead,plotting="show"):
 	global mode,tofit,variablePhaseOffset ; mode="FDTR"
 	conditionalPrint("solveFDTR","importing file:"+fileToRead)
 	conditionalPrint("solveFDTR","phase offsets: slopedPhaseOffset: "+str(slopedPhaseOffset)+", variablePhaseOffset: "+str(variablePhaseOffset))
+
+	#global slopedPhaseOffset ; slopedPhaseOffset=0
+	phasefile=fileToRead.split("/")[:-1]
+	phasefile.append("phase.txt")
+	phasefile="/".join(phasefile)
+	if os.path.exists(phasefile):
+		vPO=open(phasefile).readlines()[0]
+		vPO=vPO.split(",")
+		variablePhaseOffset=np.asarray([ float(v) for v in vPO ])
+		conditionalPrint("solveFDTR","found phase.txt, reading in. VPO:"+str(variablePhaseOffset))
+
 	#FILE READING
 	fs,phis=readFDTR(fileToRead) #; phis+=variablePhaseOffset
-	#global slopedPhaseOffset ; slopedPhaseOffset=0
-	#phasefile=fileToRead.split("/")[:-1]
-	#phasefile.append("phase.txt")
-	#phasefile="/".join(phasefile)
-	#if os.path.exists(phasefile):
-	#	vPO=open(phasefile).readlines()[0]
-	#	vPO=vPO.split(",")
-	#	variablePhaseOffset=np.asarray([ float(v) for v in vPO ])
+
 	#FITTING
 	guesses=getTofitVals() ; bnds=lookupBounds() # guesses come from thermal property matrix, bounds come from ubs / lbs globals
 	#if "phase" in tofit:
@@ -1136,11 +1140,16 @@ def solveFDTR(fileToRead,plotting="show"):
 	#fs=fs[phis>-3] ; phis=phis[phis>-3]
 	#fs=fs[phis<3]  ; phis=phis[phis<3]
 	if tofit==["variablePhaseOffset"] or tofit==["phase"]:
+		conditionalPrint("solveFDTR","FITTING FOR variablePhaseOffset")
 		phi_m=FDTRfunc(fs) ; phis-=variablePhaseOffset # remove old offset
 		variablePhaseOffset=phi_m-phis
 		print(variablePhaseOffset) ; fs,phis=readFDTR(fileToRead)
 		tofit=[] ; solvedParams=[] ; sigmas=[]
+		fileDirec="/".join(fileToRead.split("/")[:-1])
+		with open(fileDirec+"/phase.txt",'w') as f:
+			f.write(",".join([ str(v) for v in variablePhaseOffset ]))
 	elif tofit==["slopedPhaseOffset"] or tofit==["sphase"]: # if fitting for phase, since the offset is applied in readFDTR, we sort of do the fitting "backwards": func in curve_fit is readFDTR and the "data" is the model
+		conditionalPrint("solveFDTR","FITTING FOR slopedPhaseOffset")
 		phi_m=FDTRfunc(fs)
 		def readFDTRp(fs,slope):
 			global slopedPhaseOffset
@@ -4206,6 +4215,7 @@ def monteWorker(args):
 	r,e=solveFunc(filename,plotting="none") # solve it. anything but none plotting crashes the system
 	tp=copy.deepcopy(tp_old) # restore tp after solve, so it's prepped for the next val (else, we may get trapped in local minima)
 	return r,e # in theory we've standardized all solve functions to return "[param1Result,param2result,...],[residual,stdev]", even solveSimult, which passes the max of the N simultaneous TDTR scans' residuals. 
+
 
 def parallel(func,args,nworkers=7):		# if you have an arbitrary function, which you want run over and over for every element in an 
 	if os.name=='posix':			# arbitrary list of arguments, use this. if we're on a posix system (linux, macOS), we'll use
