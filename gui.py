@@ -1,4 +1,4 @@
-# v0.74 (goes with 0.164)
+# v0.75 (goes with 0.165)
 import matplotlib,time,datetime,threading,os,sys
 import tkinter as tk
 import multiprocessing ; multiprocessing.freeze_support() # https://stackoverflow.com/questions/32672596/pyinstaller-loads-script-multiple-times
@@ -74,7 +74,7 @@ makeExpandable(frameR,[3,1],[1])
 #   Linux: python3 -m pip install pyinstaller ; pyinstaller --onefile gui.py
 #   Windows: install python3 in wine (wine python_installer.exe, be sure to check "add to path"), make sure you have pip (https://pip.pypa.io/en/stable/installation/#get-pip-py), "wine python3 -m pip install [dependencies]", "wine pyinstaller --onefile gui.py")
 #   MacOS: install homebrew, "brew install python@3.8", "brew install [dependencies]" or "wine python3 -m pip install [dependencies] --user", install ext4fuse if you want to read your linux partition ( https://www.maketecheasier.com/mount-access-ext4-partition-mac/ , https://github.com/gerard/ext4fuse/issues/66 ), "python3 -m PyInstaller --onefile gui.py"
-# macOS-specific changes: multiprocessing needs to be forcefully killed (else, it'll just keep spawning windows, ffs), and "import matplotlib ; import matplotlib.pyplot as plt ; plt.plot(range(10)) ; plt.show() ; import tkinter as tk; window=tk.Tk()" will crash all to hell. Unclear why. So simply import TDTR_fitting after creating the window object.
+# macOS-specific changes: multiprocessing needs to be forcefully killed (else, it'll just keep spawning windows, yikes), and "import matplotlib ; import matplotlib.pyplot as plt ; plt.plot(range(10)) ; plt.show() ; import tkinter as tk; window=tk.Tk()" will crash all to hell. Unclear why. So simply import TDTR_fitting after creating the window object.
 # TODO NEED BETTER VALIDATION, eg, if Kr is used anywhere, but system is isotropic (Kr set to "Kz"), warn the user instead of just crashing. 
 # TODO: do people want KZF? fiber map plotting? any logging missing? can we trick the code into giving us all the solve(multi) plots on one plot, by having some sort of "don't clear the plot before making the new one" flag? AND/OR (and i'm not sure if these are compatible), have plotting code generate the plot TWICE, once to save it off with the data (so the user can go look at it later if they like), AND again here as gui.png so we can display it?
 # TODO should have more error validation (you put in wrong params, don't just crash, warn the user. you chose the wrong file type (TDTR vs SSTR vs params matric), don't just crash, warn the user).
@@ -577,7 +577,7 @@ def updatePlot1(whatWasRunning,fig=None,ax=None):
 	#else:
 	#	lastPlot="other"
 		#liveplot={}
-	# TODO BUG: contour > 3D > updates plot itself > wrapper subsequently updates plot again > lastPlot=="plot" means we re-query fig/ax from whatever was run before. okay, we fix it by reordering stuff. but interestingly, there's still a big: run 3D ("play-gif" and "contour2D") it works. run 2D, it works. re-run 3D, it doesn't work. until you close and re-open. i assume because it is successfully querying the contour fig/ax objects? idk how to avoid this! i think the "right" answer is to quit with the bullshit of the wrapper function (the core underlying issue here is that wrapper re-calls updatePlot)
+	# TODO BUG: contour > 3D > updates plot itself > wrapper subsequently updates plot again > lastPlot=="plot" means we re-query fig/ax from whatever was run before. okay, we fix it by reordering stuff. but interestingly, there's still a big: run 3D ("play-gif" and "contour2D") it works. run 2D, it works. re-run 3D, it doesn't work. until you close and re-open. i assume because it is successfully querying the contour fig/ax objects? idk how to avoid this! i think the "right" answer is to quit with the shenanigans of the wrapper function (the core underlying issue here is that wrapper re-calls updatePlot)
 	# UPDATE THOSE
 	liveplot["plot"],liveplot["fig"]=ax,fig
 	

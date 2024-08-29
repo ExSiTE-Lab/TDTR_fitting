@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*- #need this to accept unicode shenanigans below. TDTR_fitting.py is written by Thomas W. Pfeifer
-# v0.164 (goes with 0.74)
+# v0.165 (goes with 0.75)
 
-#USE CASE 1: STANDALONE: edit the below thermal properties, measurement parameters, and fitting settings, and execute "python TDTR_fitting.py" to have the file specified read in, fitting performed, and the specified thermal properties returned. 
-#USE CASE 2: EXTERNALLY CALLED: import this code into another python script via "from TDTR_fitting import *". Then, be sure to set the various thermal properties , measurement parameters, and fitting settings in your code (via the function "setVar(variableName,value)"), and call "solve" yourself. This allows you to process many files at once. 
+# USE CASE 1: STANDALONE: edit the below thermal properties, measurement parameters, and fitting settings, and execute "python TDTR_fitting.py" to have the file specified read in, fitting performed, and the specified thermal properties returned. 
+# USE CASE 2: EXTERNALLY CALLED: import this code into another python script via "from TDTR_fitting import *". Then, be sure to set the various thermal properties , measurement parameters, and fitting settings in your code (via the function "setVar(variableName,value)"), and call "solve" yourself. This allows you to process many files at once. 
 
 # TODO: sparse contours, where it keeps running and adding resolution, "stop once you're satisfied"
 # TODO: measureContour1Axis() supports RMXY via magicModifiers. is that good enough? (then can scrub measureContours and friends)
@@ -16,20 +16,20 @@
 # TODO: should find some sanity on what things are passable vs what things are global variables (eg, layerNames is only used by sensitivity(), so shouldn't that be passable? tp is used all over, so global for that makes sense. i think there are other cases like layerNames though too)
 # TODO warn() and conditionalPrint() made. warn should probably have level-specific suppression instead of a single quietWarnings flag
 
-#THERMAL PROPERTIES
+# THERMAL PROPERTIES
 #     C       Kz/G     d         Kr
 tp=[[ 2.42e6, 120.00,  85.49e-9, "Kz" ], # layer 1 (metal coating)
     [         1/4e9                ], # interface 1
     [ 2.64e6, 35,  1.,       "Kz" ]] # layer 2 (bottom layer)
 #     J/m³/K  W/m⁽²⁾/K m         W/m/K
 
-#MEASUREMENT PARAMETERS
-Pow=1. #pump power measurement (literally only matters for Tz(). everywhere else, either ratio is used, or magnitudes/X/Y signals are normalized)
+# MEASUREMENT PARAMETERS
+Pow=1. # pump power measurement (literally only matters for Tz(). everywhere else, either ratio is used, or magnitudes/X/Y signals are normalized)
 #(the following do nothing if running under standalone mode, as actual pump and probe radii and modulation frequency are read from file. these serve as the defaults if externally called however)
 rprobe=(10.0+10.0)/4.*1e-6 
 rpump=(20.0+20.0)/4.*1e-6 
-fp=80e6 #pulse frequency, in Hz (note, this is NOT read from standard data files, but is unlikely to change)
-fm=8.4e6 #moduluation frequency, in Hz
+fp=80e6 # pulse frequency, in Hz (note, this is NOT read from standard data files, but is unlikely to change)
+fm=8.4e6 # moduluation frequency, in Hz
 minimum_fitting_time=200e-12 ; minimum_fitting_frequency=1e3
 maximum_fitting_time=None #60e-12
 time_normalize="3000e-12"
@@ -37,12 +37,12 @@ gamma=1 # power absorbed = P/gamma
 useTBR=True
 
 
-#FITTING SETTINGS
+# FITTING SETTINGS
 tofit=['Kz2',"R1"]
 filesToRead=["testscripts/DATA/2019_12_13_HQ/12132019_Al2O3_Cal_1_HQ_113202_8400000.txt"]
 fitting="R"
 
-#You may also set the upper and lower bounds for fitting variables here. We define them based on type, rather than dependant on guess values (guess/20 - guess*20 might not even be okay for K, but it is quite excessive for C, for example). beware: we'll crash if your guess is outside the bounds. 
+# You may also set the upper and lower bounds for fitting variables here. We define them based on type, rather than dependant on guess values (guess/20 - guess*20 might not even be okay for K, but it is quite excessive for C, for example). beware: we'll crash if your guess is outside the bounds. 
 LBUB = { "C":(.1e6,10e6)    , "Kz":(.01,1500000)        , "Kr":(.01,1500000)           , "G":(1e3,5e9)  , "R":(1/750e6,1/5e6) , 
          "d":(5e-9,1)       , "rpump":(1e-6,30e-6)      , "rprobe":(1e-6,30e-6)         , "gamma":(0,1e12) , "tshift":(-.1,.1)   ,
          "chopwidth":(0,25) , "yshiftPWA":(-1e-2,1e-2), "slopedPhaseOffset":(-2*3.14159,2*3.14159), "variablePhaseOffset":(0,0)    , "alpha":(0,1),
@@ -57,7 +57,7 @@ ubs={ k:LBUB[k][1] for k in LBUB.keys() }
 #"expA",1}
 #ubs={ "C": 10e6 , "Kz":15000 , "Kr":15000 , "G":750e6 , "R":1/5e6   ,  "d":1.   , "rpu":30e-6 , "rpr":30e-6 , "gamma":1e12,"tshift":.1,"chopwidth":25,"yshiftPWA":1e-2,"sphase":2*3.1416,"phase":0,"alpha":1}
 
-#WHAT'S THE SCOOP ON THE MATH? READ HERE:
+# WHAT'S THE SCOOP ON THE MATH? READ HERE:
 # Jiang's, Qian's, and Yanga's "Tutorial, Time-domain thermoreflectance (TDTR) for thermal property characterization of bulk and thin film materials"
 # Schmidt's, Cheaito's, and Chiesa's "A frequency-domain thermoreflectance method for the characterization of thermal properties"
 # Braun's, Olson's, Gaskins' and Hopkins' "A steady-state thermoreflectance method to measure thermal conductivity"
@@ -84,7 +84,7 @@ ubs={ k:LBUB[k][1] for k in LBUB.keys() }
 #				[M] = |    cosh(q*L)   -1/(K𝘻*q)*sinh(q*L) |			#Schmidt eq 3 ( note: to prevent explosion, divide each
 #				      | -K𝘻*q*sinh(q*L)     cosh(q*L)      |			                element by cosh(q*L). sinh/cosh=tanh )
 #					q²=(K𝘳*k²+C*i*ω)/K𝘻					#Schmidt eq 4
-#Whether using Jiang's or Schmidt's, overflows should be expected in exp(λ*L), cosh, and sinh (at least for your semi-infinite final layer). Instead, divide through by exp(λ*L) or cosh (sinh/cosh becomes tanh). This is safe for traditional FDTR/FDTR since the final result we're after is -D/C, and the end result is the same. Beware however: if you want the backside temp of a layer, we replace -D/C above with -A𝘴𝘶𝘣*D𝘧𝘶𝘭𝘭/C𝘧𝘶𝘭𝘭+B𝘴𝘶𝘣. in this case, tanh may still be safe if L is very very small (cosh≈1), but can result in incorrect values for A𝘴𝘶𝘣 and B𝘴𝘶𝘣. division by exp(λ*L) is never safe in this case.
+# Whether using Jiang's or Schmidt's, overflows should be expected in exp(λ*L), cosh, and sinh (at least for your semi-infinite final layer). Instead, divide through by exp(λ*L) or cosh (sinh/cosh becomes tanh). This is safe for traditional FDTR/FDTR since the final result we're after is -D/C, and the end result is the same. Beware however: if you want the backside temp of a layer, we replace -D/C above with -A𝘴𝘶𝘣*D𝘧𝘶𝘭𝘭/C𝘧𝘶𝘭𝘭+B𝘴𝘶𝘣. in this case, tanh may still be safe if L is very very small (cosh≈1), but can result in incorrect values for A𝘴𝘶𝘣 and B𝘴𝘶𝘣. division by exp(λ*L) is never safe in this case.
 
 # CODE STRUCTURE:
 # solve  > [ solveTDTR , solveFDTR , solvePWA , solveSSTR ]
@@ -125,16 +125,18 @@ if os.name=='posix':
 # linux default is fork, mac/win default is spawn. we actually want fork here (copies everything before running, rather than all subprocesses in pool access save globals) https://pythonspeed.com/articles/python-multiprocessing/
 
 ### MATH STUFF ###
-#Ĝ(k,ω)=-D/C #Jiang eq 2.9 / Schmidt eq 7
-#Consider a function for Ĝ(k,ω) that takes a single k and a single ω; this is quite slow. (and you can find this in v0.3). instead, accept lists of k values, and lists of ω values, and return a 2D array structured as Ĝ[nth k][nth ω]. refer to v0.5 if you want a verbose version of this code. 
+# Ĝ(k,ω)=-D/C #Jiang eq 2.9 / Schmidt eq 7
+# Consider a function for Ĝ(k,ω) that takes a single k and a single ω; this is quite slow. (and you can find this in v0.3). instead, accept lists of k values, and lists of ω values, and return a 2D array structured as Ĝ[nth k][nth ω]. refer to v0.5 if you want a verbose version of this code. 
 def Gkomega(ks="",omegas="",partial=False):
 	global Kzs,Krs,Cs,ds,Gs,Rs
-	omegas=np.asarray(omegas) # WATCH OUT! if "omegas" is a list instead of a numpy array, ω[ω==0]=newval doesn't do what you think! it just sets the 
-	omegas[omegas==0]=1e-6	# 0th element to newval. try it yourself. a=[1,2,0,4] ; a[a==0]=7 --> [7,2,0,4]. "a==0" is False, a[False] is 0th element
+	# WATCH OUT! if "omegas" is a list instead of a numpy array, ω[ω==0]=newval doesn't do what you think! it just sets the 0th element to newval. try it yourself. a=[1,2,0,4] ; a[a==0]=7 --> [7,2,0,4]. "a==0" is False, a[False] is 0th element
+	omegas=np.asarray(omegas) 
+	omegas[omegas==0]=1e-6
 	lenk=len(ks);leno=len(omegas)
 	ks=np.outer(ks,np.ones(leno)) #creates 2D array, k[nth k,nth ω]
 	omegas=np.outer(np.ones(lenk),omegas) #creates 2D array, ω[nth k,nth ω]
 	ones=1.*np.ones((lenk,leno));zeros=0.*np.ones((lenk,leno))
+	# For #Schmidt eq 3 matrix definitions, certain sets of parameters (eg, small Kzs (.01) or large ds (1um)) will cause overflows in cosh and sinh. instead, divide through by exploding cosh and use tanh (*unless* you're using this for T(r,z) where ΔT𝘣𝘢𝘤𝘬𝘴𝘪𝘥𝘦(ω) requires each element of this matrix rather than simply the ratio of -D/C). note: explosions are most commonly found doing contours with semi-silly ranges. this will merely produce a nan in the output file, which will be treated as residual=1 upon import, so not a huge deal. (fyi, use "np.seterr(all='raise', under='ignore')", then "try:" and "except:" to debug this stuff. beware cases also exist where cosh,sinh,tanh are unexploded, but there is an explosion inside TPmatmul, so check there too).
 	if partial:
 		ct=0
 		while max(ds)>1e-6: # partial code below, with cosh and sinh instead of tanh, will have problems with thick slices with low thermal 
@@ -145,12 +147,12 @@ def Gkomega(ks="",omegas="",partial=False):
 			#print(ct,"NOW:",Kzs,Krs,Cs,ds,Gs)
 			ct=ct+1
 	lenl=len(Kzs);leni=len(Gs)
-	#and start working our way through Jiang/Schmidt et al
+	# and start working our way through Jiang/Schmidt et al
 	Ml=[] ; Mi=[]
 	for i in range(lenl):
 		Kz=Kzs[i];Kr=Krs[i];C=Cs[i];d=ds[i]
 		q=np.sqrt((Kr*ks**2.+C*1j*omegas)/Kz) #q²=(K𝘳*k²+C*i*ω)/K𝘻 #Schmidt eq 4
-		if partial: #certain sets of parameters (eg, small Kzs (.01) or large ds (1um)) will cause overflows in cosh and sinh. instead, divide through by exploding cosh and use tanh. 𝑢𝑛𝑙𝑒𝑠𝑠 you're using this for T(r,z) where ΔT𝘣𝘢𝘤𝘬𝘴𝘪𝘥𝘦(ω) requires each element of this matrix rather than simply the ratio of -D/C. note: explosions are most commonly found doing contours with semi-silly ranges. this will merely produce a nan in the output file, which will be treated as residual=1 upon import, so not a huge deal. (fyi, use "np.seterr(all='raise', under='ignore')", then "try:" and "except:" to debug this stuff. beware cases also exist where cosh,sinh,tanh are unexploded, but there is an explosion inside TPmatmul, so check there too).
+		if partial:
 			M=[[     np.cosh(q*d)      , -1./Kz/q*np.sinh(q*d) ], # |    cosh  -1/K/q*sinh | #Schmidt eq 3
 			   [ -1.*Kz*q*np.sinh(q*d) ,      np.cosh(q*d)     ]] # | -K*q*sinh    cosh    |
 		else:
@@ -162,11 +164,11 @@ def Gkomega(ks="",omegas="",partial=False):
 		R=[[ ones , -Rs[i] ], # | 1 -1/G | #Jiang eq 2.7
 		   [ zeros,  ones  ]] # | 0   1  | # (note: if G=∞ (zero thermal boundary resistance), you just have an identity matrix! )
 		Mi.append(R)
-	#finally, stack up those matrices
+	# finally, stack up those matrices
 	ABCDs=[1]*(len(Ml)+len(Mi)) # start with an empty list of appropriate length, then "interlace"
-	if lenl>leni: #Standard, lay1 intf1 lay2 intf2....layN, meaning len(Ms)=len(Rs)+1. so stack them like: M1 R1 M2 R2 M3 R3....MN
+	if lenl>leni: # Standard, lay1 intf1 lay2 intf2....layN, meaning len(Ms)=len(Rs)+1. so stack them like: M1 R1 M2 R2 M3 R3....MN
 		ABCDs[::2]=Ml ; ABCDs[1::2]=Mi
-	else: #atypical, but used for buried heating: Q_down sees standard, but Q_up sees just an interface first, meaning len(Ms)=len(Rs), so stack them like: R1 M1 R2 M2....MN
+	else: # atypical, but used for buried heating: Q_down sees standard, but Q_up sees just an interface first, meaning len(Ms)=len(Rs), so stack them like: R1 M1 R2 M2....MN
 		ABCDs[::2]=Mi ; ABCDs[1::2]=Ml
 	ABCD=np.identity(2) #we'll construct [M]ₙ...[R]₂[M]₂[R]₁[M]₁ as we go, tacking each new one on to the left
 	for entry in ABCDs:
@@ -174,23 +176,23 @@ def Gkomega(ks="",omegas="",partial=False):
 	return ABCD
 #END: Ĝ(k,ω)=-D/C #Jiang eq 2.9 / Schmidt eq 7
 
-#ΔT𝘴𝘶𝘳𝘧𝘢𝘤𝘦(ω)=A₁/2*π ∫ k*Ĝ(k,ω)*exp(-k²*(rᵣ²+rᵤ²)/8)*dk ; from 0 to ∞ #Schmidt eq 8 (analagous to Jiang's ΔT𝘴𝘶𝘳𝘧𝘢𝘤𝘦(ω)=A₁ ∫ Ĝ(k,ω)*exp(-π²*k²*w₀²)*2*π*k*dk)
+# ΔT𝘴𝘶𝘳𝘧𝘢𝘤𝘦(ω)=A₁/2*π ∫ k*Ĝ(k,ω)*exp(-k²*(rᵣ²+rᵤ²)/8)*dk ; from 0 to ∞ #Schmidt eq 8 (analagous to Jiang's ΔT𝘴𝘶𝘳𝘧𝘢𝘤𝘦(ω)=A₁ ∫ Ĝ(k,ω)*exp(-π²*k²*w₀²)*2*π*k*dk)
 from scipy.integrate import trapz,simps,romb,quad
 from scipy.special import jv,erf
 pumpShape="gaussian" ; probeShape="gaussian" ; xoff=10e-6
 hybridFactors=[1] # TODO currently hybridFactors are used in the order: gaussian,tophat,ring,offset. ideally we'd follow whatever order is in pumpShape (e.g. pumpShape="ring+tophat" would reverse the order)
 #@profile
 def delTomega(omegas,gkomega="",radii="",integration="trapz"):
-	ks=np.linspace(kmin,kmax,ksteps) #to integrate, we set up up a list of x values, pass them to f(x), and then integrate numerically by summing the area of each trapezoid. 2⁶+1=65, lab code uses 50 { [k,wk]=lgwt(50,0,10/sqrt(w0^2 + w1^2)); }
-	if len(gkomega)==0: #passing in Ĝ(k,ω) is how we hijack the same code for T𝘴𝘶𝘳𝘧𝘢𝘤𝘦 (Ĝ(k,ω)=-D/C) and ΔT𝘣𝘢𝘤𝘬𝘴𝘪𝘥𝘦 (use -A𝘴𝘶𝘣*D𝘧𝘶𝘭𝘭/C𝘧𝘶𝘭𝘭+B𝘴𝘶𝘣 instead)
+	ks=np.linspace(kmin,kmax,ksteps) # to integrate, we set up up a list of x values, pass them to f(x), and then integrate numerically by summing the area of each trapezoid. 2⁶+1=65, ExSiTE Lab matlab code uses 50 { [k,wk]=lgwt(50,0,10/sqrt(w0^2 + w1^2)); }
+	if len(gkomega)==0: # passing in Ĝ(k,ω) is how we hijack the same code for T𝘴𝘶𝘳𝘧𝘢𝘤𝘦 (Ĝ(k,ω)=-D/C) and ΔT𝘣𝘢𝘤𝘬𝘴𝘪𝘥𝘦 (use -A𝘴𝘶𝘣*D𝘧𝘶𝘭𝘭/C𝘧𝘶𝘭𝘭+B𝘴𝘶𝘣 instead)
 		if measureAt!=0 or depositAt!=0:
 			#ks=np.linspace(kmin,kmax,ksteps)	# used for integrating ∫ stuff dk
 			gkomega=biMatrix(omegas,ks)
 		else:
-			gkomega=Gkomega(ks,omegas) #returns 2D list, gkomega[nth k,nth ω]
+			gkomega=Gkomega(ks,omegas) # returns 2D list, gkomega[nth k,nth ω]
 			ABCD=gkomega
 			gkomega=-1.*ABCD[1,1]/ABCD[1,0]
-	r1={False:rpump,True:rprobe}[rpump=="rpr"] ; r2={False:rprobe,True:rpump}[rprobe=="rpu"] #if rpump set to "rpr", inherit probe radius for pump (and vice versa)
+	r1={False:rpump,True:rprobe}[rpump=="rpr"] ; r2={False:rprobe,True:rpump}[rprobe=="rpu"] # if rpump set to "rpr", inherit probe radius for pump (and vice versa)
 	# Hankel transform of a gaussian spot:
 	# p(r)=2*A/π/rᵤ²*exp(-2*r²/rᵤ²) [Jiang 2.10] -> H(k)=2π∫f(r)*J(k*r*2*π)*k dr -> p(k)=A*exp(-π²k²rᵤ²/2) [Jiang 2.11]
 	# p(r)=2*A/π/rᵤ²*exp(-2*r²/rᵤ²) [Jiang 2.10] -> H(k)=∫f(r)*J(k*r)*k dr -> p(k)=A/2/π*exp(-k²rᵤ²/8) [Schmidt 5]
@@ -200,19 +202,19 @@ def delTomega(omegas,gkomega="",radii="",integration="trapz"):
 		rs=np.linspace(0,r2*5,1000) ; pr=np.zeros(1000)
 		if "tophat" in probeShape:
 			pr[rs<=r2]=np.ones(len(rs[rs<=r2]))*1/(np.pi*r2**2) # tophat heating, 1 inside ro, 0 outside
-		#if "gaussian" in probeShape:
+		# if "gaussian" in probeShape:
 		#	pr[:]=2/np.pi/r2**2*np.exp(-2*rs**2/r2**2)
 		dr=rs[1]-rs[0] ; integ=np.sum(pr*rs)*dr*2*np.pi
 		pr*=1/integ*2*np.pi
 		Hprobe=np.sum( pr*jv(0, np.outer(ks,rs))*rs , axis=1)*dr # [ nth k, nth r], flattened in terms of r	
-	#print("sum Hprobe",np.sum(Hprobe))
+	# print("sum Hprobe",np.sum(Hprobe))
 	if pumpShape=="gaussian":
 		Hpump=1/2/np.pi*np.exp(-1.*ks**2.*(r1**2.)/8.) # 1D, [nth k].
 	elif pumpShape=="ring":
 		Hpump=1/2/np.pi*jv(0,r1*ks) # ring heating source, "infinitely thin", hankeled analytically
 	else:
 		rs=np.linspace(0,r1*5,1000) ; pu=np.zeros((len(pumpShape.split("+")),1000)) ; ct=0
-		# ALTERNATIVE SPOT SHAPES: UNCOMMENT SOME OF THESE LINES FOR NUMERICALLY-SOLVED GAUSSIAN, TOPHAT, OR RING
+		# ALTERNATIVE SPOT SHAPES: NUMERICALLY-SOLVED GAUSSIAN, TOPHAT, OR RING
 		if "gaussian" in pumpShape:
 			pu[ct,:]=2/np.pi/r1**2*np.exp(-2*rs**2/r1**2) ; ct+=1 # replicated gaussian pump, but Hankelling numerically
 		if "tophat" in pumpShape:
@@ -228,7 +230,7 @@ def delTomega(omegas,gkomega="",radii="",integration="trapz"):
 		#print("INTEGRAL PUMP:",integ) # V(r,θ)=∫ ∫ z(r,θ)*r dr dθ, 0 < r < ∞, 0 < θ < 2π
 		pu*=1/integ
 		Hpump=np.sum( pu*jv(0, np.outer(ks,rs))*rs , axis=1)*dr # [ nth k, nth r], flattened in terms of r	
-		#plot([rs],[pu],xlabel="radius (m)",ylabel="pump intensity (-)") ; return
+		# plot([rs],[pu],xlabel="radius (m)",ylabel="pump intensity (-)") ; return
 	# integrand of ΔT(ω) = A₁/2*π ∫ [ k*Ĝ(k,ω)*Hₚᵤ*Hₚᵣ ] dk, aka, Schmidt's H(ω)=A₁/2*π ∫ [ k*Ĝ(k,ω)*exp(-k²*(rᵣ²+rᵤ²)/8) ] dk.
 	integrand=ks[:,None]*gkomega*Hpump[:,None]*Hprobe[:,None] # [ k, ω ] Any var without a given dimension uses "None" to expand to the proper shape
 	if len(radii)!=0:
@@ -236,20 +238,20 @@ def delTomega(omegas,gkomega="",radii="",integration="trapz"):
 	# ΔT(ω) = ∫ k*Ĝ(k,ω)*Hₚᵤ*Hₚᵣ dk or ΔT(ω,r) = ∫ k*Ĝ(k,ω)*Hₚᵤ*J(k*r) dk
 	integrandr=integrand.real #separate real and imaginary parts so we can integrate separately
 	integrandi=integrand.imag
-	delTr=A1*integrate(integrandr, dx=ks[1]-ks[0],axis=0,itype=integration) #and integrate using scipy's trapz. you might also use simps/romb (romb needs 2ⁿ+1 steps)
+	delTr=A1*integrate(integrandr, dx=ks[1]-ks[0],axis=0,itype=integration) # and integrate using scipy's trapz. you might also use simps/romb (romb needs 2ⁿ+1 steps)
 	delTi=A1*integrate(integrandi, dx=ks[1]-ks[0],axis=0,itype=integration)*1j
 	return delTr+delTi # [ ω, (r) ]
-#END: #ΔT𝘴𝘶𝘳𝘧𝘢𝘤𝘦(ω)=A₁/2*π ∫ k*Ĝ(k,ω)*exp(-k²*(rᵣ²+rᵤ²)/8)*dk ; from 0 to ∞ #Schmidt eq 8
+# END: ΔT𝘴𝘶𝘳𝘧𝘢𝘤𝘦(ω)=A₁/2*π ∫ k*Ĝ(k,ω)*exp(-k²*(rᵣ²+rᵤ²)/8)*dk ; from 0 to ∞ #Schmidt eq 8
 
 depositAt=0 ; measureAt=0 ; alpha=0 # BIDIRECTIONAL: PROBING AND HEATING LOCATION NOT NECESSARILY SAME AS MEASUREMENT LOCATION
 # The following is always true for a given layer:			
 # | T𝑏𝑎𝑐𝑘𝑠𝑖𝑑𝑒 | = | A B | | T𝑠𝑢𝑟𝑓𝑎𝑐𝑒 | per Jiang eq 2.8	-->	In normal TDTR, we can use an adiabatic backside boundary condition: Q𝑏𝑎𝑐𝑘𝑠𝑖𝑑𝑒=0
 # | Q𝑏𝑎𝑐𝑘𝑠𝑖𝑑𝑒 |   | C D | | Q𝑠𝑢𝑟𝑓𝑎𝑐𝑒 | or / Schmidt eq 6	       which yields T𝑠𝑢𝑟𝑓𝑎𝑐𝑒=-D/C*Q𝑠𝑢𝑟𝑓𝑎𝑐𝑒  via the second equation left bottom.
 # 	or: 
-# T𝑏𝑎𝑐𝑘𝑠𝑖𝑑𝑒=A*T𝑠𝑢𝑟𝑓𝑎𝑐𝑒+B*Q𝑠𝑢𝑟𝑓𝑎𝑐𝑒 , Q𝑏𝑎𝑐𝑘𝑠𝑖𝑑𝑒=C*T𝑠𝑢𝑟𝑓𝑎𝑐𝑒+D*Q𝑠𝑢𝑟𝑓𝑎𝑐𝑒	              Next, consider the goal of measuring the backside temperature of a subslice. We can still
-#							    find T𝑠𝑢𝑟𝑓𝑎𝑐𝑒 in the traditional manner: T𝑠𝑢𝑟𝑓𝑎𝑐𝑒=-Dᵢⱼ/Cᵢⱼ*Q𝑠𝑢𝑟𝑓𝑎𝑐𝑒
-# |  i  |  j  | 					   and then plug that in to the T𝑏𝑎𝑐𝑘𝑠𝑖𝑑𝑒 equation:
-# |     |      semi-infinite BC				  T𝑏𝑎𝑐𝑘𝑠𝑖𝑑𝑒=(-Aᵢ*Dᵢⱼ/Cᵢⱼ+Bᵢ)*Q𝑠𝑢𝑟𝑓𝑎𝑐𝑒
+# T𝑏𝑎𝑐𝑘𝑠𝑖𝑑𝑒=A*T𝑠𝑢𝑟𝑓𝑎𝑐𝑒+B*Q𝑠𝑢𝑟𝑓𝑎𝑐𝑒 , Q𝑏𝑎𝑐𝑘𝑠𝑖𝑑𝑒=C*T𝑠𝑢𝑟𝑓𝑎𝑐𝑒+D*Q𝑠𝑢𝑟𝑓𝑎𝑐𝑒	Next, consider the goal of measuring the backside temperature of a subslice.
+#							            We can still find T𝑠𝑢𝑟𝑓𝑎𝑐𝑒 in the traditional manner: T𝑠𝑢𝑟𝑓𝑎𝑐𝑒=-Dᵢⱼ/Cᵢⱼ*Q𝑠𝑢𝑟𝑓𝑎𝑐𝑒
+# |  i  |  j  | 					         and then plug that in to the T𝑏𝑎𝑐𝑘𝑠𝑖𝑑𝑒 equation:
+# |     |      semi-infinite BC				      T𝑏𝑎𝑐𝑘𝑠𝑖𝑑𝑒=(-Aᵢ*Dᵢⱼ/Cᵢⱼ+Bᵢ)*Q𝑠𝑢𝑟𝑓𝑎𝑐𝑒
 # |      measure here
 #  deposit heat here					Finally, add an additional layer, with bidirectional heat flow. Consider heat flow both
 #						      to the left and the right, Q𝑙𝑒𝑓𝑡+Q𝑟𝑖𝑔ℎ𝑡=Q𝑑𝑒𝑝𝑜𝑠𝑖𝑡𝑒𝑑. The classic T𝑠(Q𝑠) expression still
@@ -259,7 +261,7 @@ depositAt=0 ; measureAt=0 ; alpha=0 # BIDIRECTIONAL: PROBING AND HEATING LOCATIO
 # |      deposit heat here		      Tⱼₖ=(-Aⱼ*Dⱼₖ/Cⱼₖ+Bⱼ)*Q𝑟𝑖𝑔ℎ𝑡 or in terms of Tᵢⱼ: Tⱼₖ=(Aⱼ-Bⱼ*Cⱼₖ/Dⱼₖ)*Tᵢⱼ.
 #  semi-infinite BC			    After some arduous algebra, we can find 
 #					 ΔTⱼₖ = (Aⱼ - Bⱼ*Cⱼₖ/Dⱼₖ) * (-Dᵢ*Dⱼₖ ) / ( Dᵢ*Cⱼₖ + Cᵢ*Dⱼₖ ) * Q𝘥𝘦𝘱𝘰𝘴𝘪𝘵𝘦𝘥. 
-# 				      And recall thin Hankel space, so we''l plug (Aⱼ-Bⱼ*Cⱼₖ/Dⱼₖ)*(-Dᵢ*Dⱼₖ)/(Dᵢ*Cⱼₖ+Cᵢ*Dⱼₖ) for Ĝ(k,ω) in 
+# 				      And recall thin Hankel space, so we'll plug (Aⱼ-Bⱼ*Cⱼₖ/Dⱼₖ)*(-Dᵢ*Dⱼₖ)/(Dᵢ*Cⱼₖ+Cᵢ*Dⱼₖ) for Ĝ(k,ω) in 
 #				  ΔT(ω)=A₁/2*π ∫ k*Ĝ(k,ω)*exp(-k²*(rᵣ²+rᵤ²)/8)*dk. Finally, considering the case where points ij and jk are switched,
 #			      the math above holds true, except that matrix j is inverted (as heat flows in the opposite direction). alternatively,
 #			  the layers can simply be reversed prior to computing the matrix, and matrices i and k are also switched with each other.
@@ -267,7 +269,7 @@ depositAt=0 ; measureAt=0 ; alpha=0 # BIDIRECTIONAL: PROBING AND HEATING LOCATIO
 def biMatrix(omegas,ks): #,seenDepths=[]	see testing29 for more rigourous algebraic derivations
 	global tp
 	tpOrig=copy.deepcopy(tp)
-	#chop tp into sub-matrices
+	# chop tp into sub-matrices
 	tp_i=list(reversed( choptp(tpOrig,0,min(depositAt,measureAt)) ))	#|<--i--[H]--j--[M]--k--...|
 	tp_j=choptp( tpOrig,min(depositAt,measureAt),max(depositAt,measureAt) )	#|--i--[H]--j-->[M]--k--...|
 	if depositAt>measureAt:							#|--i--[M]<--j--[H]--k--...|
@@ -278,27 +280,28 @@ def biMatrix(omegas,ks): #,seenDepths=[]	see testing29 for more rigourous algebr
 		+"tp_i"+str(tp_i)
 		+"tp_j"+str(tp_j)
 		+"tp_k"+str(tp_k))
-	#compute ABCD matrix for each
-	# I
+	#c ompute ABCD matrix for each
+	# subslice I
 	if depositAt==0:
 		ABCD_i=np.identity(2)
 	else:
 		tp=tp_i
 		popGlos()
 		ABCD_i=Gkomega(ks,omegas)
-	#J
+	# subslice J
 	if depositAt==measureAt:
 		ABCD_j=np.identity(2)
 	else:
 		tp=tp_j
 		popGlos()
-		ABCD_j=Gkomega(ks,omegas,partial=True) #J needs to be partial (note division of terms for all the rest: (Aⱼ - Bⱼ*Cⱼₖ/Dⱼₖ) * (-Dᵢ*Dⱼₖ ) / ( Dᵢ*Cⱼₖ + Cᵢ*Dⱼₖ ) )
-	#K
+		# J needs to be partial (note division of terms for all the rest: (Aⱼ - Bⱼ*Cⱼₖ/Dⱼₖ) * (-Dᵢ*Dⱼₖ ) / ( Dᵢ*Cⱼₖ + Cᵢ*Dⱼₖ ) )
+		ABCD_j=Gkomega(ks,omegas,partial=True) 
+	# subslice K
 	tp=tp_k
 	popGlos()
 	ABCD_k=Gkomega(ks,omegas)
 
-	if depositAt>measureAt: #|--i--[M]<--j--[H]--k--...|  instead of  |--i--[H]--j-->[M]--k--...| : simply exchange i and k and use the same math!
+	if depositAt>measureAt: # |--i--[M]<--j--[H]--k--...|  instead of  |--i--[H]--j-->[M]--k--...| : simply exchange i and k and use the same math!
 		ABCD_i,ABCD_k=ABCD_k,ABCD_i
 	ABCD_jk=TPmatmul(ABCD_k,ABCD_j)
 	# (Aⱼ - Bⱼ*Cⱼₖ/Dⱼₖ) * (-Dᵢ*Dⱼₖ ) / ( Dᵢ*Cⱼₖ + Cᵢ*Dⱼₖ )
@@ -312,68 +315,68 @@ def biMatrix(omegas,ks): #,seenDepths=[]	see testing29 for more rigourous algebr
 	return gkomega
 
 def choptp(tp,fromDepth,toDepth):
-	fromDepth,depth=min(fromDepth,toDepth),max(fromDepth,toDepth) #if you feed us in the wrong order, we'll correct it for you (beware, if you actually mean from deep to shallow, you'll need to reversed() it yourself
+	fromDepth,depth=min(fromDepth,toDepth),max(fromDepth,toDepth) # if you feed us in the wrong order, we'll correct it for you (beware, if you actually mean from deep to shallow, you'll need to reversed() it yourself
 	if fromDepth==toDepth: # properties literally don't matter, it's a layer with zero thickness
 		return [[C_Sapph,K_Sapph,0,"Kz"]]
-	ds=getCol(2) ; cumdepth=np.cumsum(ds) #layers 0 to 10 (d=10), 10 to 30 (d=20), 30 to 100 (d=70), 100 to inf (d=inf), cumdepth gives 10,30,100,inf
-	fromLayer=np.where(cumdepth>fromDepth)[0][0] #layers 0 to 10, 10 to 30, 30 to 100, 100 to inf. want to inspect d=1? cumsum is 10,30,100,inf, we're *inside* the 0th. convention: if we say deposit heat AT an interface, it technically goes in layer below (fromdepth=d_interface), so if d=10, well, now we want to 1nth layer. 
+	ds=getCol(2) ; cumdepth=np.cumsum(ds) # layers 0 to 10 (d=10), 10 to 30 (d=20), 30 to 100 (d=70), 100 to inf (d=inf), cumdepth gives 10,30,100,inf
+	fromLayer=np.where(cumdepth>fromDepth)[0][0] # layers 0 to 10, 10 to 30, 30 to 100, 100 to inf. want to inspect d=1? cumsum is 10,30,100,inf, we're *inside* the 0th. convention: if we say deposit heat AT an interface, it technically goes in layer below (fromdepth=d_interface), so if d=10, well, now we want to 1nth layer. 
 	fromID=fromLayer*2 # layer number (0,1,2,3...) to index in tprops (layers on 0,2,4,6...)
 	if toDepth>cumdepth[-1]:
 		toDepth=cumdepth[-1]
-	toLayer=np.where(cumdepth>=toDepth)[0][0] #layers 0 to 10, 10 to 30, 30 to 100, 100 to inf. want to inspect d=1? cumsum is 10,30,100,inf, we're *inside* the 0th. this time, d=10, there's no point in keeping the extra zero-thickness layer that we'll end up with if we reject cumdepth=todepth.
+	toLayer=np.where(cumdepth>=toDepth)[0][0] # layers 0 to 10, 10 to 30, 30 to 100, 100 to inf. want to inspect d=1? cumsum is 10,30,100,inf, we're *inside* the 0th. this time, d=10, there's no point in keeping the extra zero-thickness layer that we'll end up with if we reject cumdepth=todepth.
 	toID=toLayer*2
 	newtp=copy.deepcopy(tp[fromID:toID+1])
-	th_0=cumdepth[fromLayer]-fromDepth #new thickness: depth of the original interface to our right, minus how deep we actually are
-	th_N=toDepth-(cumdepth[toLayer]-ds[toLayer]) #new thickness: how deep we are, minus the depth of original interface to our left (gotcha: if toLayer is 0, we don't want cumdepth[-1], ie, total
+	th_0=cumdepth[fromLayer]-fromDepth # new thickness: depth of the original interface to our right, minus how deep we actually are
+	th_N=toDepth-(cumdepth[toLayer]-ds[toLayer]) # new thickness: how deep we are, minus the depth of original interface to our left (gotcha: if toLayer is 0, we don't want cumdepth[-1], ie, total
 	#print(th_0,th_N,fromDepth,toDepth)
 	if len(newtp)>1:
 		newtp[0][2]=th_0
 		newtp[-1][2]=th_N
-	else: #in the case where we end up with only one layer, th_0 is "distance from right interface" whereas th_N is "distance from left interface", ie, we need overlap!
+	else: # in the case where we end up with only one layer, th_0 is "distance from right interface" whereas th_N is "distance from left interface", ie, we need overlap!
 		newtp[0][2]=th_0+th_N-newtp[0][2]
 	#print("newtp",newtp)
 	return newtp
 
-#Z(t𝘥)= Σ ΔT(ωₘ+n*ωₚ)*exp(i*n*ωₚ*t𝘥) #from -∞ to ∞, Jiang eq 2.21/2.22 (modified) / Schmidt eq 2. 
-#def Z(tds): #takes a list of time delay values
+# Z(t𝘥)= Σ ΔT(ωₘ+n*ωₚ)*exp(i*n*ωₚ*t𝘥) #from -∞ to ∞, Jiang eq 2.21/2.22 (modified) / Schmidt eq 2. 
+# def Z(tds): #takes a list of time delay values
 #	sumbits=(delTplus)*np.exp(1j*omegaP*np.outer(tds,ns))*convergeAccelerator #[which time delay,which n]
 #	return np.sum(sumbits,axis=1)
-#Note that while Jiang states Vᵢₙ(t𝘥)=½Σ(ΔT(ωₘ+n*ωₚ)+ΔT(-ωₘ+n*ωₚ))*exp(i*n*ωₚ*t𝘥) and Vₒᵤₜ(t𝘥)=-i*½Σ(ΔT(ωₘ+n*ωₚ)-ΔT(-ωₘ+n*ωₚ))*exp(i*n*ωₚ*t𝘥), simply taking the real and imaginary parts of ΣΔT(ωₘ+n*ωₚ)*exp(i*n*ωₚ*t𝘥) yields the same result. 
-#END: Z(t𝘥)= Σ ΔT(ωₘ+n*ωₚ)*exp(i*n*ωₚ*t𝘥) #from -∞ to ∞, Jiang eq 2.21/2.22 (modified) / Schmidt eq 2.
+# Note that while Jiang states Vᵢₙ(t𝘥)=½Σ(ΔT(ωₘ+n*ωₚ)+ΔT(-ωₘ+n*ωₚ))*exp(i*n*ωₚ*t𝘥) and Vₒᵤₜ(t𝘥)=-i*½Σ(ΔT(ωₘ+n*ωₚ)-ΔT(-ωₘ+n*ωₚ))*exp(i*n*ωₚ*t𝘥), simply taking the real and imaginary parts of ΣΔT(ωₘ+n*ωₚ)*exp(i*n*ωₚ*t𝘥) yields the same result. 
+# END: Z(t𝘥)= Σ ΔT(ωₘ+n*ωₚ)*exp(i*n*ωₚ*t𝘥) #from -∞ to ∞, Jiang eq 2.21/2.22 (modified) / Schmidt eq 2.
 insertInterfaceDepths=True
 # MAJOR CHANGE WITH VERSION 132: WE NOW ALLOW PASSING A LIST OF OMEGAS, AND RETURNING A LIST OF T(z,r) FOR EACH OMEGA. WHY? THIS ALLOWS EASY PASSAGE OF BUNCHES OF FREQUENCIES, E.G. FOR SQUARE WAVE HEATING, WHERE THE SQUARE WAVE IS DONE VIA A SUM OF SINES
-#returns EITHER a nD x nR matrix of temperatures for a T(r,z) profile, OR, given a single radius and depth, return the individual temperature there.
-def Tz(mindepth=0,maxdepth=1500e-9,dsteps=50,rsteps=1,td="CW",maxradius=0,full=False,r=-1,d=-1,gif=False,omegas=""): #see testing29 for, testing, examples, and more rigourous algebraic derivations
+# returns EITHER a nD x nR matrix of temperatures for a T(r,z) profile, OR, given a single radius and depth, return the individual temperature there.
+def Tz(mindepth=0,maxdepth=1500e-9,dsteps=50,rsteps=1,td="CW",maxradius=0,full=False,r=-1,d=-1,gif=False,omegas=""): # see testing29 for, testing, examples, and more rigourous algebraic derivations
 	global rprobe,depositAt,measureAt,minimum_fitting_time
 	if depositAt!=0 or measureAt!=0:	# suppose we're doing bidirectional analysis (material/Al/SiO2, backside pump/probe). there's a HIGH 
 		dz=maxdepth-mindepth		# CHANCE we don't want to gen T(r,z) in the surface 2μm or so, when we deposited heat 1mm down
 		mindepth=depositAt-dz/2
 		maxdepth=depositAt+dz/2
-	#copy off old settings
+	# copy off old settings
 	rpr_old=rprobe ; depAt_old=depositAt ; measAt_old=measureAt ; tmin_old=minimum_fitting_time
 	rprobe=0 ; popGlos()
 	conditionalPrint("Tz","preparing to run with the following parameters:",pp=True)
 	ks=np.linspace(kmin,kmax,ksteps)
 	if len(omegas)==0:
 		if td=="CW":
-			omegas=np.asarray([omegaM]) #no sidebands required for CW
+			omegas=np.asarray([omegaM]) # no sidebands required for CW
 		else:
-			minimum_fitting_time=td #min_t controls number of sidebands summed over, nmin/nmax, popGlos() populates them
+			minimum_fitting_time=td # min_t controls number of sidebands summed over, nmin/nmax, popGlos() populates them
 			popGlos()
 			ns=np.arange(nmin,nmax+1)
-			convergeAccelerator=np.exp(-pi*ns**2./nmax**2.) #same stuff as in delTomega(), but we do it here so we can compute Ĝ(k,ω) once per layer, regardless of how many radii
-			omegas=omegaM+ns*omegaP #1D list of ω=ωₘ+n*ωₚ values to pass into ΔT(ω)
+			convergeAccelerator=np.exp(-pi*ns**2./nmax**2.) # same stuff as in delTomega(), but we do it here so we can compute Ĝ(k,ω) once per layer, regardless of how many radii
+			omegas=omegaM+ns*omegaP # 1D list of ω=ωₘ+n*ωₚ values to pass into ΔT(ω)
 	if maxradius==0:
 		maxradius=rpump
 	if isinstance(d,(list,np.ndarray)) and isinstance(r,(list,np.ndarray)):
 		depths=d ; radii=r ; dsteps=len(depths) ; rsteps=len(radii)
 	elif r>=0 and d>=0:
-		if np.amin(np.absolute(d-np.cumsum(getCol(2))))<1e-11: #if passed depth is on (or ultra-close to) an interface, bump it upwards (shallower)
+		if np.amin(np.absolute(d-np.cumsum(getCol(2))))<1e-11: # if passed depth is on (or ultra-close to) an interface, bump it upwards (shallower)
 			d+=1e-10
 		depths=[d] ; radii=[r] ; dsteps=1 ; rsteps=1
 	else:
 		depths=np.linspace(mindepth,maxdepth,dsteps) ; radii=np.linspace(0,maxradius,rsteps)
-		#update depths with points just-above and just-below each interface within bounds
+		# update depths with points just-above and just-below each interface within bounds
 		if insertInterfaceDepths:
 			depths=list(depths)
 			for d in np.cumsum(getCol(2)):
@@ -382,7 +385,7 @@ def Tz(mindepth=0,maxdepth=1500e-9,dsteps=50,rsteps=1,td="CW",maxradius=0,full=F
 				depths.append(d-1e-10) ; depths.append(d+1e-10)
 			depths=sorted(depths) ; depths=np.asarray(depths) ; dsteps=len(depths)
 	conditionalPrint("Tz","depths:"+str(depths)+"\nradii:"+str(radii))
-	#and start processing all depths and radii
+	# and start processing all depths and radii
 	Ts=np.zeros((len(omegas),dsteps,rsteps),dtype=complex)
 	for d in range(dsteps):
 		measureAt=depths[d]
@@ -399,23 +402,23 @@ def Tz(mindepth=0,maxdepth=1500e-9,dsteps=50,rsteps=1,td="CW",maxradius=0,full=F
 		#	sumbits=dto[:,:]*np.exp(1j*omegaP*td*ns)[:,None]*convergeAccelerator[:,None] # [ ω or n, r ]
 		#	T=np.sum(sumbits,axis=0)  # [ ω, r ]
 		#	Ts[d,:]=T[:]
-	#actual temp is magnitude of real and imag "signal", for steady state
+	# actual temp is magnitude of real and imag "signal", for steady state
 	T=(Ts.real**2.+Ts.imag**2.)**.5
 	#T=Ts.real
-	#restore old settings
+	# restore old settings
 	rprobe=rpr_old ; depositAt=depAt_old ; measureAt=measAt_old ; minimum_fitting_time=tmin_old
 	if full:
-		return T,depths,radii,Ts #returning the full-on real+i*imag parts allows someone to, say, get instantaneous T(t) for the mod-CW heating. see KZF validation/why not heater modulation/testing.py
+		return T,depths,radii,Ts # returning the full-on real+i*imag parts allows someone to, say, get instantaneous T(t) for the mod-CW heating. see KZF validation/why not heater modulation/testing.py
 	return T,depths,radii # index ordering: T[d,r],depths[d],radii[r]
 ### END MATH STUFF ###
 
 ### MATH HELPERS ###
-def TPmatmul(mat1,mat2): #replaces numpy.matmul, which does not accept lists as A-Dn
+def TPmatmul(mat1,mat2): # replaces numpy.matmul, which does not accept lists as A-Dn
 	A1=mat1[0][0];B1=mat1[0][1];C1=mat1[1][0];D1=mat1[1][1] #|A1 B1| |A2 B2| __ | r1c1 r1c2 | 
 	A2=mat2[0][0];B2=mat2[0][1];C2=mat2[1][0];D2=mat2[1][1] #|C1 D1| |C2 D2| -- | r2c1 r2c2 |
 	return np.asarray([[A1*A2+B1*C2,A1*B2+B1*D2],[C1*A2+D1*C2,C1*B2+D1*D2]])
 	
-def integrate(matrix,dx,axis,itype="trapz"): #given an N D matrix of y values, integrate along given axis
+def integrate(matrix,dx,axis,itype="trapz"): # given an N D matrix of y values, integrate along given axis
 	if itype=="trapz":
 		return trapz(matrix,dx=dx,axis=axis)
 	if itype=="simps":
@@ -423,6 +426,7 @@ def integrate(matrix,dx,axis,itype="trapz"): #given an N D matrix of y values, i
 	if itype=="romb":
 		return trapz(matrix,dx=dx,axis=axis)
 
+# RESIDUAL FUNCTIONS: the ideal data vs model comparison function would be scaling-proof (don't want to infer "2x worse fit" just because your data is scaled by a factor of 2), length-proof (same story). we're settling on Cahill's, "RES()" below. more discussion below too. 
 def RSQ(dataYs,funcYs): # R² value: https://en.wikipedia.org/wiki/Coefficient_of_determination
 	meanYs=np.mean(dataYs)
 	SST=sum( (dataYs-meanYs)**2 ) #SSₜₒₜ=Σ(yᵢ-ȳ)²
@@ -513,11 +517,10 @@ def error(dataYs,funcYs):
 	#return CUR(dataYs,funcYs)
 	#a,b,c=CUR3(dataYs,funcYs)/5,SLO(dataYs,funcYs)/4,RES(dataYs,funcYs)
 	#print("error:",a,b,c)
-	#return max(b,c) # "What percent change in curvature is visible by eye, which we would reject a fit for?" "what percent change in slope is visible by eye, which we would reject a fit for?" "what absolute deviation is visible by eye, which we would reject a fit for?" and so on. we only use to find "all the fits" for our cals which we dislike (and the tightened range of cal values we'll accept). 
+	#return max(b,c) # Experimental, begging the question "what's the bad fit for cals look like, where we might get a fine cals value, but the fit looks bad, so we reject it". three criteria: "What percent change in curvature is visible by eye, which we would reject a fit for?" "what percent change in slope is visible by eye, which we would reject a fit for?" "what absolute deviation is visible by eye, which we would reject a fit for?" and so on. we only use this to find "all the fits for our cals which we dislike" (and the tightened range of cal values we'll accept). 
 
 # Criteria 1: error metric should not scale with funcion and data: consider y=[3,4,5], f=[2,4,6] and y=[0.3,0.4,0.5], f=[0.2,0.4,0.6]
-#if you need nonscalability (error metric scales as you scale dataset would be bad), avoid MSE, RSQ, RMS. 
-#consider 
+# if you need nonscalability (error metric scales as you scale dataset would be bad), avoid MSE, RSQ, RMS. 
 # RSQ: 2/2 vs .02/.02		# PASS
 # MSE: 2/3 vs .02/3		# FAIL
 # RES: 2/56 vs .02/.56		# PASS
@@ -550,13 +553,13 @@ def popGlos(): #populate globals used in various places for solving, eg, ω in r
 	A1=Pow/gamma
 	r1={False:rpump,True:rprobe}[rpump=="rpr"] ; r2={False:rprobe,True:rpump}[rprobe=="rpu"] #if rpump set to "rpr", inherit probe radius for pump (and vice versa)
 	wo=math.sqrt(.5*r1**2.+.5*r2**2.) #w₀=√(½(w₁²+w₂²)) #Jiang eq 2.18+
-	omegaM=fm*2.*pi;omegaP=fp*2.*pi #ωₘ and ω𝘴  are modulation frequency and laser pulse frequency #Jiang eq 2.10+
-	# for TDTR: while Jiang states a summing of n from -∞ to ∞ (Vᵢₙ(t𝘥) and Vₒᵤₜ(t𝘥), Jiang eqs 2.21 and 2.22), there is a point where additional ns add little value. Cahill's "Analysis of heat flow in layered..." uses a bounds of 10*τ/t (Cahill eq 21+), where τ is the inverse of the pulse frequency: τ=1/fₚ=2*π/ωₚ, yielding ±20*π/(ωₚ*t), where ωₚ is the laser pulse frequency. Meanwhile, Cheito's code uses bounds of ±4*π/(ωₚ*tₛ) { M=round(4*pi/(omega_s*min_t));n=-M:M }, where tₛ is the minimum time where a TDTR response fitting begins. Note, using ±4*π/(ωₚ*tₛ) yields ±0.2% wiggles over Cheito's code. ±2*4*π/(ωₚ*tₛ) matches Cheito's code (odd), and ±3*4*π/(ωₚ*tₛ) undercuts Cheito's wiggles by 0.15% (nearly no wiggles). Cahill "Analysis of heat flow in layered...", Eq 20+, exp(-π(f/fₘₐₓ)²) is used to accelerate convergence. read about the need for these "sidebands" here: https://en.wikipedia.org/wiki/Dirac_comb (our pulses are a dirac comb, represented as a series of sines; the number of sine waves. the number of sine waves required to accurately approximate the signal from the pulses is determined by their rate and how close to the pulses you care to be accurate. 
-	nmax=int(2./(fp*minimum_fitting_time)*3);nmin=-1*nmax #here, we take Cheito's ±4*π/(ωₚ*tₛ), replace ωₚ=2*π*fₚ, and use ±2/(fₚ*tₛ), x3
-	if nmax>200000: #unsure why, but excessive N's seems to yield whacky results (try T(r,z) at low time delays)
+	omegaM=fm*2.*pi;omegaP=fp*2.*pi # ωₘ and ω𝘴  are modulation frequency and laser pulse frequency, Jiang eq 2.10+
+	# for TDTR: while Jiang states a summing of n from -∞ to ∞ (Vᵢₙ(t𝘥) and Vₒᵤₜ(t𝘥), Jiang eqs 2.21 and 2.22), there is a point where additional ns add little value. Cahill's "Analysis of heat flow in layered..." uses a bounds of 10*τ/t (Cahill eq 21+), where τ is the inverse of the pulse frequency: τ=1/fₚ=2*π/ωₚ, yielding ±20*π/(ωₚ*t), where ωₚ is the laser pulse frequency. Meanwhile, Cheito's code uses bounds of ±4*π/(ωₚ*tₛ) { M=round(4*pi/(omega_s*min_t));n=-M:M }, where tₛ is the minimum time where a TDTR response fitting begins. Note, using ±4*π/(ωₚ*tₛ) yields ±0.2% wiggles over Cheito's code. ±2*4*π/(ωₚ*tₛ) matches Cheito's code (odd), and ±3*4*π/(ωₚ*tₛ) undercuts Cheito's wiggles by 0.15% (nearly no wiggles). Cahill "Analysis of heat flow in layered...", Eq 20+, exp(-π(f/fₘₐₓ)²) is used to accelerate convergence. read about the need for these "sidebands" here: https://en.wikipedia.org/wiki/Dirac_comb (our pulses are a dirac comb, represented as a series of sines; the number of sine waves. the number of sine waves required to accurately approximate the signal from the pulses is determined by their rate and how close to the pulses you care to be accurate).
+	nmax=int(2./(fp*minimum_fitting_time)*3);nmin=-1*nmax # here, we take Cheito's ±4*π/(ωₚ*tₛ), replace ωₚ=2*π*fₚ, and use ±2/(fₚ*tₛ), x3
+	if nmax>200000: # unsure why, but excessive N's seems to yield whacky results (try T(r,z) at low time delays)
 		nmax=200000
 	#nmax*=20 ; nmin*=20
-	kmax=10./math.sqrt({True:max(r1,xoff),False:r1}["offset" in pumpShape]**2.+r2**2.);kmin=0.0 #S's H(ω) is required if you're using S's layers! ditto with integration bounds.
+	kmax=10./math.sqrt({True:max(r1,xoff),False:r1}["offset" in pumpShape]**2.+r2**2.);kmin=0.0 # S's H(ω) is required if you're using S's layers! ditto with integration bounds.
 	cutw=2;hi=11;hf=6
 	if fm<10**-cutw:
 		ksteps=2**hi+1
@@ -566,31 +569,31 @@ def popGlos(): #populate globals used in various places for solving, eg, ω in r
 		e=np.log10(fm)
 		n=int((hf-hi)/(2*cutw)*e+(hf+hi)/2)
 		ksteps=2**n+1
-#	update material properties: (set up numpy lists (allows easy elementwise math, like "C/Kz" for each layer all at once) for each property)
-	if len(tp[0])==4: #typical: lay1 intf1 lay2...layN, layer props are in even (0 - N), interface props are in odd (1 - N-1)
+	# update material properties: (set up numpy lists (allows easy elementwise math, like "C/Kz" for each layer all at once) for each property)
+	if len(tp[0])==4: # typical: lay1 intf1 lay2...layN, layer props are in even (0 - N), interface props are in odd (1 - N-1)
 		Cs=getCol(0) ;  Kzs=getCol(1) ; ds=getCol(2) ; Krs=getCol(3)
 		if useTBR:
 			Rs=getCol(0,"odds")# ; Rs=[ v*1e-9 for v in Rs ]
 			Gs=[ 1/np.float64(v) for v in Rs ] # casting to np.float64 allows div by zero: https://stackoverflow.com/questions/62264277/get-infinity-when-dividing-by-zero liable to have zero R, but never zero G
 		else:
 			Gs=getCol(0,"odds") ; Rs=[ 1/v for v in Gs ]
-	else: #We may also find partial stacks: G/lay/G/lay...
+	else: # We may also find partial stacks: G/lay/G/lay...
 		Cs=getCol(0,"odds") ;  Kzs=getCol(1,"odds") ; ds=getCol(2,"odds") ; Krs=getCol(3,"odds")
 		if useTBR:
 			Rs=getCol(0) ; Gs=[ 1/v for v in Rs ]
 		else:
 			Gs=getCol(0) ; Rs=[ 1/v for v in Gs ]
-	#print("Rs",Rs,"Gs",Gs)
-	if "Kz" in list(Krs): #put "Kz" in your Krs column for anisotropic. here, it's just a list referencing another list; anisotropy always enforced!
-		#Krs=Kzs # see below: we can be more clever about this: something like Krs[Kzs=="Kz"]=Kzs[Kzs=="Kz"], to allow mixing of iso and aniso
+	# print("Rs",Rs,"Gs",Gs)
+	if "Kz" in list(Krs): # put "Kz" in your Krs column for anisotropic. my using a *reference* to the Kz list, anisotropy is always enforced!
+		# Krs=Kzs # see below: we can be more clever about this: something like Krs[Kzs=="Kz"]=Kzs[Kzs=="Kz"], to allow mixing of iso and aniso
 		Krs=[ Kz if Kr=="Kz" else Kr for Kz,Kr in zip(Kzs,Krs)] # Any place where Krs contains "Kz", we pull the value from Kzs
 			
 	conditionalPrint("popGlos","found: 0<k<"+str(kmax)+"/"+str(ksteps)+", "+str(nmin)+"<n<"+str(nmax),pp=True)
 
-def getCol(c,evensOrOdds="evens"): #return a column from the thermal properties matrix, tp. TODO consider using list comprehension: [x[0] for x in l]
+def getCol(c,evensOrOdds="evens"): # return a column from the thermal properties matrix, tp. TODO consider using list comprehension: [x[0] for x in l]
 	i1={"evens":0,"odds":1}[evensOrOdds]
 	everyother=np.asarray(tp[i1::2])
-	if len(np.shape(everyother))<2: #happens when tp is "too short" to find this param, eg, single-layer and we ask for G
+	if len(np.shape(everyother))<2: # happens when tp is "too short" to find this param, eg, single-layer and we ask for G
 		return []
 	column=list(everyother[:,c])
 	conditionalPrint("getCol",str(column))
@@ -635,7 +638,7 @@ def writeResultFile(datafile,r,e):
 		f.write("\n"+"tp="+str(tp)+",rpr="+str(rprobe)+",rpu="+str(rpump))
 
 # SOLVING FUNCTIONS
-# generic solve(), sensitivity(), perturbUncertainty(), measureContour1Axis() functions check variable "mode" to check which solve function to call (solveTDTR, solveSSTR), and resultsPlotter() (called by all solve functions) checks variable "mode" to decide how to plot the resilts. it's a bit sketchy though: e.g. user imports TDTR_fitting, calls solveSSTR manually, means solveSSTR needs to re-set "mode" so resultsPlotter can check it. easy to mess up for future solver functions (TODO: find some sanity here)
+# generic solve(), sensitivity(), perturbUncertainty(), measureContour1Axis() functions check variable "mode" to check which solve function to call (solveTDTR, solveSSTR), and resultsPlotter() (called by all solve functions) checks variable "mode" to decide how to plot the results. it's a bit sketchy sometimes though: e.g. user imports TDTR_fitting, calls solveSSTR manually, means solveSSTR needs to re-set "mode" so resultsPlotter can check it. easy to mess up for future solver functions (TODO: find some sanity here)
 mode="TDTR"
 def solve(fileToRead,plotting="show",refit=True):
 	# First, check if this file has already been solved for
@@ -669,8 +672,8 @@ def solve(fileToRead,plotting="show",refit=True):
 		#return r,e
 
 	stack=traceback.format_stack()
-	mc1as=[ ( "mc1aWorker" in l or "genContour2D" in l ) for l in stack ] # we do NOT want to save off the results (for later re-use) if solve() was just
-	#print(stack)	# called by the fast contours code! 
+	mc1as=[ ( "mc1aWorker" in l or "genContour2D" in l ) for l in stack ] # we do NOT want to save off the results (for later re-use) if solve() was just called by the fast contours code! 
+	#print(stack)
 	if True not in mc1as:
 		writeResultFile(fileToRead,r,e)
 	return r,e
@@ -678,7 +681,7 @@ def solve(fileToRead,plotting="show",refit=True):
 def func(xs,*parameterValues,store=False,addNoise=False): # x axis points (time delays for TDTR, pump powers for SSTR, and so on). and a list of parameter values corresponding to tofit. func(*listVariable) notation pops list values out. var=["cat","dog"], func(*var) allows func() to hear func("cat","dog"). not passing anything for paremeterValues simply generates the decay function with the thermal property matrix as-is.
 	f={"TDTR":TDTRfunc,"SSTR":SSTRfunc,"pSSTR":SSTRfunc,"FDTR":FDTRfunc,"PWA":PWAfunc,"FD-TDTR":TDTRfunc}[mode]
 	return f(xs,*parameterValues,store=store,addNoise=addNoise)
-lastRead="" ; lastData=[] # prevent pounding the shit out of the disk if we're re-reading the same file (e.g. flat3DContour)
+lastRead="" ; lastData=[] # prevent pounding the disk if we're re-reading the same file (e.g. flat3DContour)
 def readFile(fileToRead,reread=False):
 	global lastRead,lastData
 	if not reread and fileToRead==lastRead:
@@ -1047,11 +1050,11 @@ def TDTRfunc(ts,*parameterValues,store=False,addNoise=False,whackyFunc=None):
 
 	convergeAccelerator=np.exp(-pi*ns**2./nmax**2.)	# [ ωₙ ], each n represents a frequency, Cahill eq 20+, exp(-πf²/fₘₐₓ²)
 
-	#Z(t𝘥)= Σ ΔT(ωₘ+n*ωₚ)*exp(i*n*ωₚ*t𝘥) #from -∞ to ∞, Jiang eq 2.21/2.22 (modified) / Schmidt eq 2. 
+	# Z(t𝘥)= Σ ΔT(ωₘ+n*ωₚ)*exp(i*n*ωₚ*t𝘥) #from -∞ to ∞, Jiang eq 2.21/2.22 (modified) / Schmidt eq 2. 
 	sumbits=delTplus[None,:]*np.exp(1j*omegaP*np.outer(ts,ns))[:,:]*convergeAccelerator[None,:] # [ t, ωₙ ]
 	z=np.sum(sumbits,axis=1) # [ t ], sum over all ωₙ 
-	#Note that while Jiang states Vᵢₙ(t𝘥)=½Σ(ΔT(ωₘ+n*ωₚ)+ΔT(-ωₘ+n*ωₚ))*exp(i*n*ωₚ*t𝘥) and Vₒᵤₜ(t𝘥)=-i*½Σ(ΔT(ωₘ+n*ωₚ)-ΔT(-ωₘ+n*ωₚ))*exp(i*n*ωₚ*t𝘥), simply taking the real and imaginary parts of ΣΔT(ωₘ+n*ωₚ)*exp(i*n*ωₚ*t𝘥) yields the same result. 
-	#Vᵢₙ(t𝘥)  = Re(Z(ω)) , Vₒᵤₜ(t𝘥) = Im(Z(ω))							#Jiang eq 2.21/2.22 (modified) 
+	# Note that while Jiang states Vᵢₙ(t𝘥)=½Σ(ΔT(ωₘ+n*ωₚ)+ΔT(-ωₘ+n*ωₚ))*exp(i*n*ωₚ*t𝘥) and Vₒᵤₜ(t𝘥)=-i*½Σ(ΔT(ωₘ+n*ωₚ)-ΔT(-ωₘ+n*ωₚ))*exp(i*n*ωₚ*t𝘥), simply taking the real and imaginary parts of ΣΔT(ωₘ+n*ωₚ)*exp(i*n*ωₚ*t𝘥) yields the same result. 
+	# Vᵢₙ(t𝘥)  = Re(Z(ω)) , Vₒᵤₜ(t𝘥) = Im(Z(ω))							#Jiang eq 2.21/2.22 (modified) 
 	xs=z.real ; ys=z.imag
 
 	# what is the purpose of noise? statistical analysis (no scan is perfect, what is it's fundamental noise level? if we find a residual value r, what percent of that is fundamental noise, vs incorrect fitting params?)
@@ -1089,25 +1092,10 @@ def saveGen(txy,fname,delim="\t"):
 		for row in zip(*txy):
 			f.write(delim.join([str(v) for v in row])+"\n")
 
-#TODO: need to test FDTR solving (pulsed and CW) : If you are a user of FDTR, i would appreciate if you sent me some data files for testing. (see testing23 for examples)
-# Discussion: how does phase correction with FDTR work? we can monitor the pump signal, and use that
-# as one phase-correction step (in drift in phase of the pump is thus captured), however there may still
-# be some other systematic phase (e.g. what if there is a time lag between pump acquisition and probe
-# acquisition). For now, we'll assume the systematic phase is linear with frequency (a constant time lag,
-# vs a uniformly-varying period duration dependant on frequency, will produce a phase lag proportional to
-# frequency). This can be accounted for as a correction applied to the data, or as a correction applied
-# to the model, or both. There is also the issue of wrapping (a high phase lag is represented as a phase
-# lead), and this wrapping will result in instability in fitting. To account for both, for example, we
-# might arbitraryly set the phase of the highest-frequency datapoint to zero, then let the model do the 
-# same, or we might arbitrarily set the highest-frequency datapoint to pi/2 phase lag (and ditto for the
-# model). These will give the same fits, BUT, different residual values (it's not a "scaling" of data, 
-# it's a "shifting" of data. dY=0.01 when Y=1 is 1% error, but dY=.01 (same dY, data and model are both
-# just shifted) when Y=.1 is 10% error). 
-# instead, when fitting for phase, we effectively need to fit the data to the model (instead of model to
-# data, as is the normal procedure).
+#TODO: need to test FDTR solving (pulsed and CW) : If you are a user of FDTR, i would appreciate if you sent me some data files for testing. (see testing23 for examples). twp4fg@virginia.edu
+# Discussion: how does phase correction with FDTR work? we can monitor the pump signal, and use that as one phase-correction step (any drift in phase of the pump is thus captured), however there may still be some other systematic phase (e.g. what if there is a time lag between pump acquisition and probe acquisition). Maybe we can assume the systematic phase is linear with frequency (a constant time lag, vs a uniformly-varying period duration dependant on frequency, will produce a phase lag proportional to frequency). This can be accounted for as a correction applied to the data, or as a correction applied to the model, or both. There is also the issue of wrapping (a high phase lag is represented as a phase lead), and this wrapping will result in instability in fitting. To account for both, for example, we might arbitrarily set the phase of the highest-frequency datapoint to zero, then let the model do the same, or we might arbitrarily set the highest-frequency datapoint to pi/2 phase lag (and ditto for the model). These will give the same fits, BUT, different residual values (it's not a "scaling" of data, it's a "shifting" of data. dY=0.01 when Y=1 is 1% error, but dY=.01 (same dY, data and model are both just shifted) when Y=.1 is 10% error). instead, when fitting for phase, we effectively need to fit the data to the model (instead of model to data, as is the normal procedure).
 slopedPhaseOffset=0 # Attempts at a theory-based phase offset scheme: laser path / electronics / etc may all create a phase offset between the "true" probe response and the "measured" probe response (or you can think of it as time delay between two supposedly-simultaneous sinusoidal signals at a given frequency). for FDTR, it is common practice to fit for the phase offset (because there is no time-delay=0 crossing to use for automatic phase correction like with TDTR)
-variablePhaseOffset=0 # empirical phase offset: conceivably data may not follow slopedPhaseOffset, so instead, simply use a reference sample to generate a phase-vs-frequency offset dataset. fit for vphase on a known sample, then the point-by-point correction will be applied to all subsequent fits
-# TODO phase offset may be frequency-dependent! 
+variablePhaseOffset=0 # empirical phase offset: conceivably data may not follow slopedPhaseOffset, so instead, simply use a reference sample to generate a phase-vs-frequency offset dataset. fit for vphase on a known sample, then the point-by-point correction will be applied to all subsequent fits. NOTE: to avoid issues with noise, you may wish to use the fileAverager before calculating your variablePhaseOffset
 def solveFDTR(fileToRead,plotting="show"):
 	global mode,tofit,variablePhaseOffset ; mode="FDTR"
 	conditionalPrint("solveFDTR","importing file:"+fileToRead)
@@ -1200,16 +1188,7 @@ def calsForPhase(fileDirec,calmatDirec,materials=["Al2O3","SiO2","Quartz","Si"])
 	f.write(",".join([str(p) for p in dphi]))
 	print(dphi)
 	f.close()
-"""
-def dzFDTR(parameterValues,fs,data,filename):
-	model=FDTRfunc(fs,*parameterValues)
-	#corrected=data+slopedPhaseOffset*fs
-	#corrected[corrected<-np.pi]+=2*np.pi
-	#corrected[corrected>np.pi]-=2*np.pi
-	fs,corrected=readFDTR(filename)
-	conditionalPrint("dzFDTR","ran with",pp=True)
-	return model-corrected
-"""
+
 def readFDTR(filename):
 	autos(filename)
 	data=np.loadtxt(filename,skiprows=2)
@@ -1265,30 +1244,6 @@ def readFDTR(filename):
 	#	Y+=variablePhaseOffset
 	return fs,Y
 
-"""
-def FDTRphase(fs,xs,ys):
-	#return xs,ys
-	for i in range(int(len(xs)*3/4),len(xs)):
-		#i=-7
-		rs , phi = np.sqrt(xs**2+ys**2) , np.arctan2(ys,xs)	
-		
-		pO=phi[i]/fs[i]+np.pi/2/fs[i]
-		print("FDTRphase",i,phi[i],fs[i],pO)
-		dphi=-pO*fs
-		#dphi=-np.arctan2(ys[i],xs[i])
-		#print(i,ys[i],xs[i],dphi)
-		xs , ys = xs*np.cos(dphi)-ys*np.sin(dphi) , ys*np.cos(dphi)+xs*np.sin(dphi)
-
-		#break
-		#m=phi[i]/fs[i] # a "linear slope correction" applied to phase vs frequency
-		#print(i,xs[i],ys[i],phi[i],fs[i],m)
-		#phi/=abs(phi[i])
-		#phi[phi<-np.pi]+=2*np.pi
-		#phi[phi>np.pi]-=2*np.pi
-	#xs , ys = rs*np.cos(phi) , rs*np.sin(phi)
-	return xs,ys
-"""
-
 def FDTRfunc(fs,*parameterValues,store=False,addNoise=False):
 	# Step 1: set passed parameters, infer mofulation frequency, and so on	
 	if len(parameterValues)==len(tofit):
@@ -1308,7 +1263,6 @@ def FDTRfunc(fs,*parameterValues,store=False,addNoise=False):
 		saveGen([fs,xs,ys],store)
 	Y = { "R":-xs/ys , "X":normalize(fs,xs) , "Y":normalize(fs,ys) , "M":normalize(fs,(xs**2.+ys**2.)**.5) , "P":np.arctan2(ys,xs)}[fitting]
 	return Y#-variablePhaseOffset
-
 
 plusMinus=0
 tshift=0 ; chopwidth=5 ; normPWA=True ; yshiftPWA=0 ; centerY=False ; waveformPWA="square" ; fitRisePWA=False ; sumNPWA=10000 ; runAvgPWA=0 ; dutyCycle=50 ; diracIndex=0
@@ -1773,226 +1727,6 @@ from scipy.optimize import least_squares #solve
 from scipy.optimize import brute
 from scipy.optimize import minimize
 
-"""
-def solveSimultaneous(listOfFiles,plotting="show"): #just as solve() allows scipy.curve_fit to call into a helper TDTRfunc (which takes the parameters, handles setup, and returns resulting decay curve), we allow nlinsq to call into a different helper function which returns the dz for all the data sets (dz being how far off a given curve is). nlinsq is then trying to minimize this "error". Solving in this manner (minimizing error rather than using curve-fit) allows us to accept a list of files instead of one single file, and fit all decay curves simultaneously. "plotting" options include: show, save, none
-	data=[];ts=[];fms=[]
-	for fileToRead in listOfFiles: #import all files, reading in varying processing parameters (eg, modulation frequency). TODO: expand for spot size differences scan to scan. until then, last file imported rules. 
-		ts,dataFromFile=readTDTR(fileToRead)
-		fms.append(fm) #readTDTR set the modulation frequency as it read in the data points! so we read it here. 
-		data.append(dataFromFile)
-	guesses=getTofitVals() #handle guesses
-	bnds=lookupBounds() #; print(bnds)
-	lsqout=least_squares(solveSimultHelper, tuple(guesses), bounds=tuple(bnds), args=(data,ts,fms))
-	residuals=solveSimultPlotting(lsqout,ts,data,listOfFiles,plotting)
-	return lsqout["x"],[max(residuals),0] #MSE returned
-	#return brute(solveSimultHelper,bnds,Ns=100)
-
-#given a list with lists of TDTR datapoints, and a list of modulation frequencies for each (most commonly varied), return flattened function(t)-data(t) (this goes into least_squares)
-def solveSimultHelper(parameterValues,listOfDecays,ts,fms): #[[file1mag1,file1mag2,...],[file2mag1...]],[t1,t2,t2, (shared by all files)], [freq1,fre2..], [Kz2val,G1val... (matching tofit)] #TODO: assumes same pump probe sizes too. should those be passable as well?
-	incrementCounter("solveSimultHelper")
-	results=np.zeros((len(fms),len(ts)))
-	global fm
-	for i in range(0,len(fms)):
-		fm=fms[i]
-		result=TDTRfunc(ts,*parameterValues)
-		results[i,:]=result[:]
-	dz=listOfDecays-results
-	return dz.flatten()
-
-
-import traceback # use this to use brute iaoi called by measureContour1Axis
-# What is simultaneous fitting? it may be common procedure to run multiple measurements (e.g. TDTR collected at multiple modulation frequencies) or measurement types (TDTR and SSTR), and iteratively fit back and forth between the two, to fit for more unknowns than would be typical. ss2 saves you the effort of manual iteration, by solving the multiple measurements (or types) at once. 
-# Simultaneous fitting works the same as normal fitting ( 1. read x and y datapoints for the curve out of a data file, also reading in various other parameters like modulation frequency, spot sizes, etc, 2. have a separate function which, given the fitted-for thermal parameters, generates the curve (and possibly also takes the data and subtracts the curve and model), 3) call curve_fit or least_squares to minimize the difference between data and curves ). However, for simultaneous fitting (multi-frequency, or multi-technique), we must save off those read-in parameters (fm, rpu, rpr), and be sure to call the approriate file-reading function, and curve-generation function. for data, we keep a nested ragged list, and we iterate through that list for curve generation. TODO: check testing41.py for how to use TODO BEWARE: an SSTR+TDTR pair, if SSTR has 10 points and TDTR has 30, will weight SSTR as 1/4th of TDTR. this is probably not what you want.
-ss2Types=[] ; ss2fms=[] ; ss2rpus=[] ; ss2rprs=[] ; magicMods={} # TODO ss2Types is a really really shitty hack in order to make measureContours1Axis work without needing to cascade all args through to mc1aWorker [ setVar("ss2Types",types) ; ,measureContour1Axis(files,"Kz2",solveFunc=ss2) ]. ss2fms,rpus,rprs, is another really really shitty hack in order to make predictUncert() work, since it needs to generate fake datafiles to run measureContour1Axis() across, and we want to support multifrequency and so on.
-# HOW DOES MAGICMODS WORK, IF THE USER WERE TO SET IT BEFOREHAND? dict of vars (by name), where each var's value is a list of things to set, for each file. e.g. magic={ "tp":[tpforfile1,tpforfile2...] , "fitting":[...] }
-def ss2_v01(listOfFiles,listOfTypes="",plotting="show",useBrute=False,refit=True): # TODO refit does nothing right now, but we should implement it! see the refit functionality for solve()! 
-	global magicMods
-	conditionalPrint("ss2","preparing to run: "+" , ".join([str(l) for l in [listOfFiles,listOfTypes,ss2Types,ss2fms,ss2rpus,ss2rprs,magicMods]]))
-	# settableVars: passed to ss2h, containing keys (vars) and lists of values (one per datafile), to be looped through, calling setVar(var,val)
-	sV={ "fm":[] , "rpump":[] , "rprobe":[] }
-	foundMM=["magicModifiers" in f for f in listOfFiles]		# some issues with file ordering from gui.py, so maybe False,False,True,False
-	if True in foundMM:
-		MM=listOfFiles[foundMM.index(True)]			# get the filename (including path) of magicMod file
-		listOfFiles=[f for f,t in zip(listOfFiles,foundMM) if not t ] # for each file/Truth pair, only keep those files that aren't magicMods
-		lines=open(MM,'r').readlines()
-		for l in lines:						# eg 'tp=[C_Al,K_Al,80e-9,"Kz"],[90e6],[C_Si,K_Si,1,"Kz"]'
-			#print(l)					# and you must have one entry per datafile
-			ls=l.split(";")					# but you can have multiple glos to set per line, ";" delimited
-			for l in ls:
-				l=l.strip()				# 'tp=[[...]] ; fitting="R"' -> ' fitting="R"' -> 'fitting="R"' -> ['fitting',"R"]
-				l=l.split("=")			
-				var,val=l
-				#print(var,val)
-				if var not in sV.keys():
-					sV[var]=[]
-				sV[var].append(eval(val))
-	else:
-		# should also allow preserve any magicMods that are already in the global (allow user to populate magicMods themselves via setVar instead of requiring a magicMods file. ALSO, this is needed in order for predictUncert to work with magicMods (it'll create the fake datafiles abiding by magicMods, then we'll wipe 'em out here. not good) TODO there's definitely going to be some collisions happening here. run fitting with magicMods then without, we'll keep the old magicMods still in use! or, use different 
-		for k in magicMods.keys():
-			if len(magicMods[k])==len(listOfFiles):
-				sV[k]=magicMods[k]
-
-	# also need to update modes. 3 ways to get it: listOfTypes passed in, ss2Types set beforehand, or magicModifiers text file which ends up in sV already
-	if len(listOfTypes)==len(listOfFiles):		# passed listOfTypes overrides all other options
-		sV["mode"]=listOfTypes
-	elif "mode" in sV.keys():			# next option: mode can be included in magicModifiers
-		listOfTypes=sV["mode"]
-	elif len(listOfTypes)==0 and len(ss2Types)==0:	# no mode given, default to whatever's in global "mode" for all
-		listOfTypes=[mode]*len(listOfFiles)
-	elif len(listOfTypes)==0:			# global (ss2Types) populated but nothing passed (listOfTypes)
-		listOfTypes=ss2Types
-	sV["mode"]=listOfTypes
-		
-
-	magicMods=sV ; conditionalPrint("sV",str(sV))
-	# READ IN THE (various types of) DATA
-	conditionalPrint("ss2","running for files/types: "+"; ".join([f.split("/")[-1]+","+t for f,t in zip(listOfFiles,listOfTypes)]),pp=True)
-	Xs=[] ; Ys=[] ; autoFailed_local=False ; global autoFailed # local copy of autoFailed is used to record if *any* of our files autofailed
-	for i,f,t in zip(range(len(listOfFiles)),listOfFiles,listOfTypes):
-		fun={"TDTR":readTDTR,"SSTR":readSSTR,"PWA":readPWA,"FDTR":readFDTR,"pSSTR":readSSTR}[t]
-		#print(i,f,t)
-		for var in sV.keys():		# need to handle magicmods for file import too! eg, fitting="R",fitting="M"
-			if var in ["fm","rpump","rprobe"]:
-				continue
-			#print(var)
-			conditionalPrint("ss2",str(var)+str(sV)+str(i))
-			setVar(var,sV[var][i])
-		xs,ys=fun(f)
-	#	if t=="TDTR": # this is a prototype to explore the weighting discrepency between, say, SSTR and TDTR. "scale up" TDTR data and watch
-	#		ys=ys*1000	# your ss2 give different results (whether SSTR vs TDTR get better or worse or equally-bad fits)
-		Xs.append(xs) ; Ys.append(ys)
-		sV["fm"].append(fm) ; sV["rpump"].append(rpump) ; sV["rprobe"].append(rprobe) # TODO need more intelligent additions. plausible the user put frequencies or radii in magicModifiers.txt
-		#fms.append(fm) ; rpus.append(rpump) ; rprs.append(rprobe)
-		if autoFailed:
-			autoFailed_local=True
-	autoFailed=autoFailed_local 
-#	#print(fms,rpus,rprs)
-	conditionalPrint("ss2","settableVars:"+str(sV))
-	if len(tofit)>0:
-		# ITERATIVELY, CALL EACH APPROPRIATE MODEL FUNCTION, MINIMIZING DIFFERENCE
-		guesses=getTofitVals() #handle guesses
-		bnds=lookupBounds() ; conditionalPrint("ss2","guesses,bounds:"+str(guesses)+","+str(bnds))
-		#lsqout=least_squares(ss2h_equalweighting, tuple(guesses), bounds=tuple(bnds), args=(Xs,Ys,sV,listOfTypes))
-		#if len(tofit)>2:
-		#print(traceback.format_stack())
-		#truth = [ "mc1aWorker" in line for line in traceback.format_stack() ][:-1] # gotcha alert! last line of call stack is *this* line! which includes our search string! haha! 
-		#print(truth)
-		#if True not in truth:
-		#if not useBrute:
-		#	conditionalPrint("ss2","solving using function: minimize")
-		stack=traceback.format_stack()
-		#if True in [ "mc1aWorker" in line for line in stack ]: # TODO why just warn, instead of, say, using brute? because brute is irresponsibly slow. i'd rather not nuke the performance on "good enough"? warn, and have the user use 3D contours if they need better accuracy
-		#	print("SS2+CONTOURS WARNING: USING THIS FOR CONTOURS IS DANGEROUS! LOCAL MINIMA ARE DIFFICULT TO AVOID! USE FULL ND CONTOURS INSTEAD")
-		if useBrute:
-			conditionalPrint("ss2","solving using function: brute")
-			lsqout=brute(ss2h_equalweighting, tuple(list(zip(*bnds))), args=(Xs,Ys,sV,listOfTypes)) ; lsqout={"x":lsqout}
-		else:
-			#x_scale=[ 1/factDict[p[:-1]] for p in tofit ] #; print(x_scale)
-			#lsqout=minimize(ss2h_equalweighting, tuple(guesses), bounds=tuple(list(zip(*bnds))), args=(Xs,Ys,sV,listOfTypes) )
-			#lsqout=least_squares(ss2h_equalweighting, tuple(guesses), bounds=tuple(bnds), args=(Xs,Ys,sV,listOfTypes),x_scale=x_scale)
-			#dy=ss2h(lsqout['x'],Xs,Ys,sV,listOfTypes,flatten=True)
-			#lsqout["mse"]=MSE(dy,np.zeros(len(dy)))
-			#sigmas=lsqSigmas(lsqout)
-			# HERE IS HOW WE TRICK CURVE_FIT INTO SOLVING OUR MULTIPLE CURVES. xs is a dummy list the length of the number of datapoints (important for correct error for sigmas i think), ss2hcf just flattens the Fᵢ-Yᵢ, so the curves we're trying to get to match are, all measurements concatenated together, and zeros
-			xs=[]
-			for x in Xs:
-				xs+=list(x)
-			def ss2hcf(xs,*parameterValues):
-				return ss2h(parameterValues,Xs,Ys,sV,listOfTypes)
-			solvedParams,parm_cov=curvefit(ss2hcf,xs,np.zeros(len(xs)),p0=tuple(guesses),bounds=tuple(bnds))
-			sigmas=np.sqrt(np.diag(parm_cov))
-			lsqout={"x":solvedParams}
-	else:
-		lsqout={"x":[]} ; sigmas=[]
-	#conditionalPrint("ss2","found:"+str(lsqout["x"])+","+str(sigmas)+","+str(residuals))
-	# PLOTTING THE RESULTS
-	Ys_m=ss2h(lsqout["x"],Xs,Ys,sV,listOfTypes,flatten=False)
-	#Ys_mp=ss2h(lsqout["x"]*np.asarray([1.2,1]),Xs,Ys,fms,rpus,rprs,listOfTypes,flatten=False)
-	#Ys_mm=ss2h(lsqout["x"]*np.asarray([.8,1]),Xs,Ys,fms,rpus,rprs,listOfTypes,flatten=False)
-	residuals=[error(y,ym) for y,ym in zip(Ys,Ys_m)]
-	if plotting in ["show","save"]:
-	#if True:
-		Xp=[] ; Yp=[] ; dlbs=[] ; mkrs=[]
-		for i in range(len(Xs)):
-			dlb=listOfFiles[i].split("/")[-1]+","+listOfTypes[i]
-			x=np.asarray(Xs[i]) ; y=np.asarray(Ys[i]) ; ym=np.asarray(Ys_m[i])
-			#ymp=np.asarray(Ys_mp[i]) ; ymm=np.asarray(Ys_mm[i])
-			if len(set(listOfTypes))>1:
-				xmax=max(x) ; ymax=max(abs(y))
-				x/=xmax ; ym/=ymax ; y/=ymax
-				#ymp/=ymax ; ymm/=ymax
-			Xp.append(x) ; Yp.append(y) ; mkrs.append("o") ; dlbs.append(dlb)
-			Xp.append(x) ; Yp.append(ym) ; mkrs.append("-") ; dlbs.append(dlb)
-			#Xp.append(x) ; Yp.append(ymp) ; mkrs.append("r:") ; dlbs.append("")
-			#Xp.append(x) ; Yp.append(ymm) ; mkrs.append("r:") ; dlbs.append("")
-		valStr=", ".join([p+"="+scientificNotation(v,2) for p,v in zip(tofit,lsqout["x"])])
-		resStr="R^2 = "+",".join([scientificNotation(r,2) for r in residuals])
-		title=valStr+", "+resStr
-		#figFile={"show":"","save":"/".join(listOfFiles[0].split("/")[:-1])+"/"+callingScript+"/pics/"+listOfFiles[0].split("/")[-1]+".png"}[plotting]
-		lplot(Xp, Yp, "-", "-", title=title, markers=mkrs, labels=dlbs, filename=figFile(listOfFiles[0],plotting))
-		#plt.legend(loc="upper right",frameon=False)
-		#plt.show()
-	conditionalPrint("ss2","found:"+str(lsqout["x"])+","+str(sigmas)+","+str(residuals))
-	return lsqout["x"],[max(residuals),0]
-
-# What happens when you try to simultaneous-fit TDTR+SSTR? y values for a typical TDTR scan analyzing ratio are 1-6 (unitless), whereas y values for a typical SSTR scan can be in the thousands (semi-arbitrary uV pump and uV probe, divide by aux in V). least_squares is not scaling-agnostic (double Fᵢ and Yᵢ both, MSE doubles), which means you've applied a 1000x weighting to the SSTR scan! the "best fit" ends up being "a good fit for SSTR, and a shoddy fit for TDTR". This has greater rammifications than just for fitting: if our uncertainty is calculated (in part) by exploring the range over which a parameter can be set and a good fit can still be found (by tweaking the other fitted params), then this "shoddy fit for TDTR" ends up artificially narrowing your uncertainty: there is a wider range of values where semi-poor fits can be found for both. 
-# TODO OH NO, THIS STILL DOESN'T RESOLVE THE ISSUE. WORKS FOR 2 MEASUREMENTS SIMULTANEOUSLY, BUT NOT 3! EG, MIN LSQ FOR 3 RESIDUALS MIGHT BE WHERE ONE RESIDUAL IS ABOVE THRESHOLD, EVEN THOUGH AN ALL-3-BELOW-THRESHOLD SOLUTION EXISTS
-# looks like just returning a single max of the residuals works fine (and i think this is "correct": if one measurement has a good fit and another has a bad fit, we don't really care about the good fitting measurement. that bad fit is bad). 
-def ss2h_equalweighting(parameterValues,Xs,Ys,sV,listOfTypes):
-	#print(Xs,Ys,parameterValues,listOfTypes,sV,traceback.format_stack())
-	Ys_m=ss2h(parameterValues,Xs,Ys,sV,listOfTypes,flatten=False)
-	#tosum=[]
-	#for Y,Ym in zip(Ys,Ys_m):
-	#	for y,ym in zip(Y,Ym):
-	#		tosum.append( (y-ym)**2 )
-	#return np.sqrt(np.sum(tosum))
-	residuals=[ error(d,f) for d,f in zip(Ys,Ys_m) ]
-	#diffs=[]
-	#for i,r1 in enumerate(residuals):
-	#	for j,r2 in enumerate(residuals):
-	#		if i==j:
-	#			continue
-	#		diffs.append((r1-r2)*10)
-	#residuals=residuals+diffs
-	#print(residuals)
-	return residuals # TODO when using ss2 for contours1Axis, it's possible for the "best fit" to be "one scan has a perfect fit, the other has a shoddy fit" (which might appear outside the threshold), even when "both scans have just okay fits" exists (within threshold). You can try to address by, for example, returning max(residuals) here, BUT, that leads to local minima in basic solving (fails to converge to the right solution, because no matter which way it perturbs the fitting params, the max goes up. you can see this with basic mfSSTR, 2 frequency, eg, testscripts/DATA/2022_02_15_Fiber/. starting out, if 1kHz is the "worse of the two", then the solver "learns" it's insensitive to G1, then never tries changing G1 later once 10MHz becomes the worse. I don't know what to do about this, aside from just say that measureContours1Axis flat out doesn't work
-	#residuals=[ r if r<=2.5 else r*2 for r in residuals ]
-	#return np.asarray(residuals) #)**2-1
-	#return [max(residuals)]
-	#return max(residuals)
-	#return np.sum(np.asarray(residuals)**2)**(1/2)
-multipliers={}
-def ss2h(parameterValues,Xs,Ys,sV,listOfTypes,flatten=True):
-	conditionalPrint("ss2h","trying with parameters:"+str(parameterValues))
-	global fm,rprobe,rpump
-
-	Ys_m=[]
-	for i in range(len(Xs)):
-		for var in sV.keys():
-			setVar(var,sV[var][i])
-	
-		#print(parameterValues,tofit)
-		if len(parameterValues)==len(tofit): # note: set fitting params *afteR* settableVars is handled. eg, what if we're fitting for spot sizes? those were read from the file headers (possibly) by ss2, passed in through sV, and we don't want those to override the fitted params (same applies for magicModifiers. plausible to put the whole thermal properties matrix in magicModifiers.txt, but we still want to fit for one of the thermal properties. so fitted free param needs to override imported).
-			setTofitVals(parameterValues)
-
-		for var in multipliers.keys():
-			m=multipliers[var][i]
-			setVar(var,m*getVar(var))
-		
-
-		fun={"TDTR":TDTRfunc,"SSTR":SSTRfunc,"pSSTR":SSTRfunc,"PWA":PWAfunc,"FDTR":FDTRfunc}[listOfTypes[i]]
-		ys=fun(Xs[i])
-		Ys_m.append(ys)
-	if flatten:
-		dys=[]
-		for y,ym in zip(Ys,Ys_m):
-			y=np.asarray(y) ; ym=np.asarray(ym)
-			dys+=list(y-ym)
-		return dys
-	else:
-		return Ys_m
-"""
-
 def processMagic(filename,settables={}):
 	conditionalPrint("processMagic","found magic file: "+filename) 
 	lines=open(filename).readlines()
@@ -2154,189 +1888,12 @@ def ss3h(parameterValues,Xs,Ys,settables,flatten=True):
 		Ys_model=sum([ list(y) for y in Ys_model],[])
 	return Ys_model
 
-"""
-# What are these KZF functions? See paper "Measuring Sub-Surface Spatially-Varying Thermal Conductivity of Silicon Implanted with Krypton" by Pfeifer et al, Journal of Applied Physics. We can fit for a function of thermal conductivity vs depth (K(z)) if there is a gradient of properties, as is the case in ion-bombarded materials. 
-from scipy.optimize import differential_evolution
-kzfGuess=[] ; kzfBnd=[] ; lockedParam=[] ; lockedAs=[]
-#@profile # install kernprof (python3-line-profiler), and run "sudo kernprof -lv SiKr.py 3_1Axis"
-def solveKZFSimultaneous(listOfFiles,guesses='',bnds='',plotting="show"): #guesses=[var1guess,var2guess,var3guess...], bounds=((var1lower,var2lower,...)(var1upper,...)) #"plotting" options include: show, save, none
-	incrementCounter("solveKZFSimultaneous")
-	data=[];ts=[];fms=[]
-	for fileToRead in listOfFiles: #import all files, reading in varying processing parameters (eg, modulation frequency). TODO: expand for spot size differences scan to scan. 
-		ts,dataFromFile=readTDTR(fileToRead)
-		fms.append(fm) #readTDTR set the modulation frequency as it read in the data points! so we read it here. 
-		data.append(dataFromFile)
-	if len(guesses)==0: # why? idk, passing funcs to funcs to funcs is hard. easier to use solveKZFsimultaneous() as a drop-in replacement for solve(), eg, within measureContour1Axis(). so you can either pass guesses/bounds, OR, set globals for them, idc
-		guesses=kzfGuess
-	if len(bnds)==0:
-		bnds=kzfBnd
-	#guesses=brute(brutehelper,np.transpose(np.asarray(bnds)),args=(data,ts,fms),Ns=10,workers=-1,finish=None)
-	#print("Brute found guesses: ",guesses)
-	lsqout=least_squares(solveKZFSimHelper, tuple(guesses), bounds=tuple(bnds),args=(data,ts,fms))
-	#bnds=list(zip(*bnds)) # i guess differential_evolution wants [[minA,maxA],[minB,maxB],...] rather than what least_squares wants [[minA,minB,...],[maxA,maxB,...]]
-	#print(bnds)
-	#lsqout=differential_evolution(solveKZFSimHelper, bounds=tuple(bnds), args=(data,ts,fms))
-
-	plotLabelStrings=[]
-	for lsq in lsqout["x"]:
-		plotLabelStrings.append(str(scientificNotation(lsq,2)))
-	#print(lsqout["x"])
-	#
-	#
-	residuals=solveSimultPlotting(lsqout,ts,data,listOfFiles,plotting,paramString=", ".join(plotLabelStrings))
-	#print("counters['decayKZF']",counters)
-	return lsqout["x"],residuals
-
-
-#@profile
-def solveKZFSimHelper(parameterValues,listOfDecays,ts,fms):
-	results=np.zeros((len(fms),len(ts)))
-	# hidden feature: say we'd normally fit for gaussian parameters A,B,C and interface 1 conductance G1. normally, we'll ignore tofit and just infer from parameterValues' length. 
-	# now let's say you want to explore fitting of only parameters A,C,G1, and set B. for this, you'll need to add to lockedParam ("B") and lockedAs (locked value), and also ensure 
-	# tofit can serve as an index of which entry in parameterValues corresponds to which parameter by name (["A","B","C","G1"])
-	#print(lockedParam,lockedAs,tofit)
-	for p,v in zip(lockedParam,lockedAs):
-		i=tofit.index(p)
-		parameterValues[i]=v
-	#print("try with",parameterValues)
-	global fm
-	for i in range(0,len(fms)):
-		fm=fms[i]
-		result=decayKZF(ts,*parameterValues)
-		results[i,:]=result[:]
-	#print("SOLVEKZFHELPER:",parameterValues)
-	#plotKZF(*parameterValues)
-	#plot([ts]*2*len(fms),list(listOfDecays)+list(results))
-	dz=listOfDecays-results
-	#prettyPrint()
-	#print("->",sum(dz.flatten()**2))
-	#if counters["resKZFDecay"]>4:
-	#	sys.exit()
-	#return sum(dz.flatten()**2)
-	return dz.flatten()
-
-#@profile
-def decayKZF(ts,*args,addNoise=False): #basically just wrap existing TDTRfunc code. only difference: we do our own prep (update tp ourselves) and then don't pass thermal properties to change
-	global tp
-	incrementCounter("decayKZF")
-	conditionalPrint("decayKZF","pre-slice:",pp=True)
-	tp_orig=copy.deepcopy(tp)	# save off: now that popPropmatKZF no longer just scoops up all middle layers, we need to make sure we don't leave a junky thermal property matrix when we're done. 
-	popPropmatKZF(*args)		# generate sliced matrix
-	conditionalPrint("decayKZF","post-slice:",pp=True)
-	results=TDTRfunc(ts,addNoise=addNoise)		# generate TDTR decay curve
-	#printtp()
-	tp=copy.deepcopy(tp_orig)	# restore old matrix
-	return results
-
-#@profile
-nslices=10 ; sliceWhich=2 # slice layer 2 of N (first layer is 1)
-def popPropmatKZF(*args): #given an arbitrary property matrix with an arbitrary number of layers, we keep the first (transducer typically), apply KZF to the middle, and keep the final, slicing the middle into nslices. (thus, we can populate an initial base matrix, and still rehandle a matrix that's already been sliced up). 
-	#if nslices==0: #silly hack to default in nslices. can't just do func(nslices=10,*args) because then trying to pass your args, nslices will eat the first one. 
-	#	nslices=100 #NOPE. ASSUME GLOBAL NSLICES INSTEAD
-	global tp
-	d,C,Kz,Kr=[ c+str(sliceWhich) for c in ["d","C","Kz","Kr"] ] # names for params for sliced layer: "d2", "C2" etc
-	d=getParam(d) ; C=getParam(C) ; Kz=getParam(Kz) ; Kr=getParam(Kr) # values of original params for sliced layer
-	dz=d/nslices
-	depths=getCol(2) # list of depths for stack
-	#print(depths)
-	dmin=sum(depths[:sliceWhich-1]) ; dmax=dmin+d
-	centerdepths=np.linspace(dmin,dmax,nslices+1)[:-1]+dz/2 #linspace(0,7,5)-> [0,1.75,3.5,5.25,7], linear spacing ends included. we want n regions though, and the points in the center of them. transducer|-o-|-o-|-o-|base.
-	i=(sliceWhich-1)*2 # index of slicable layer
-	l0=[]
-	for l in tp[:i]:	# save off all layers and interfaces before our slicable one
-		l0.append(l)
-	ln=[]
-	for l in tp[i+2:]: # and all layers and interfaces after our slicable one (note: we sub TBC on the bottom-side of slicable for inf)
-		ln.append(l)
-	Ks=KZF(centerdepths,*args) # compute all Ks for sublayers
-	Cs=CZF(centerdepths,*args) # and Cs for sublayers
-	ls=[]
-	for K,C in zip(Ks,Cs):	# layer and interface n +
-		ls.append([C,K,dz,"Kz"])
-		ls.append([np.inf])
-	tp=l0+ls+ln
-	KZFother(*args)
-	conditionalPrint("popPropmatKZF","using parameters:",pp=True)
-
-def KZF(z,*args): #HERE YOU DEFINE YOUR FUNCTION FOR Kz(z)! see testing22 for examples and testing. or set in your calling code and overwrite with sys.modules["TDTR_fitting"].KZF=yourKZF
-	KZFWarning("KZF")
-	K=tp[-1][1]
-	return np.ones(len(z))*K
-
-def CZF(z,*args):
-	KZFWarning("CZF")
-	C=tp[-1][0]
-	return np.ones(len(z))*C
-
-def KZFgaussian(z,*args): #I gave you a gaussian. your calling code should set this to overwrite KZF, eg, sys.modules["TDTR_fitting"].KZF=KZFgaussian
-	A,B,C=args[:3] # historically we did this, but it yields an incredibly uneven weighting for final K(z=center). eg, A=linspace(0,1,21) (as results from scipy brute) yields K_center=[120., 17.1, 9.23, 6.32, 4.8, 3.87, 3.24, 2.79, 2.45, 2.18, 1.97, 1.79,...]
-	K0=tp[-1][1]
-	A=1/A-1/K0 # instead, let's say A is K(z=center). K=1/(1/Ko+A*gauss) -> A=1/K-1/Ko. but this comes with it's own challenge (too easy to be too course. 1e14 dose is definitely a min conductivity of 2-3 W/m/K,  
-
-	# A, B, C are gausian center magnitude, center position, and width (no need to offset center position by transducer)
-	R0=1./K0
-	Rg=A*np.exp(-1.*(z-B)**2./(2.*C**2.))
-	Rt=R0+Rg
-	K=1./Rt
-	return K
-
-def KZFgaussian2(z,*args): #I gave you a gaussian. your calling code should set this to overwrite KZF, eg, sys.modules["TDTR_fitting"].KZF=KZFgaussian
-	K0=tp[-1][1]
-	#args 1 2 3 are gausian center magnitude, center position, and width (no need to offset center position by transducer)
-	dK=-args[0]*np.exp(-1.*(z-args[1])**2./(2.*args[2]**2.))
-	K=K0+dK
-	return K
-"""
+# KZF FUNCTIONS HAVE MOVED! check out old/TDTR_fitting-v0.164.py (These are for the paper "Measuring Sub-Surface Spatially-Varying Thermal Conductivity of Silicon Implanted with Krypton" by Pfeifer et al, Journal of Applied Physics. We can fit for a function of thermal conductivity vs depth (K(z)) if there is a gradient of properties, as is the case in ion-bombarded materials) 
 
 def yemxpb(xs,m,b):
 	return m*xs+b
 def quadratic(xs,a,b,c):
 	return a*xs**2+b*xs+c
-
-"""
-def KZFother(*args): #MANUALLY UPDATE ANY OTHER THERMAL PARAMETERS YOU WANT TO FIT FOR HERE. eg, setParam("G1",args[-1]) 
-	KZFWarning("KZFother")
-
-def KZFWarning(funcName,warned=[]): #function used to warn users who may be inappropriately calling stock KZF CZF KZFother
-	if funcName not in warned:
-		warn(funcName,"WARNING: Did you remember to populate TDTR_fitting.py>"+funcName+"? or set remotely? eg:\nFrom TDTR_fitting import *\ndef your"+funcName+":\n\t[your code]\nsys.modules[\"TDTR_fitting\"]."+funcName+"=your"+funcName+" #replaces TDTR_fitting's defined func with yours. beware: order of these three operations (import, define, replace) matters if yours is simply titled "+funcName+"()")
-		warned.append(funcName)
-
-def plotKZF(*args,plotting="show",maxdepth=2.5e-6): #USE THIS FOR PLOTTING YOUR GUESSES, MAKE SURE YOUR KZF IS SANE
-	#print("plotting with args:",args)
-	plotsteps=100
-	ds=np.linspace(tp[0][2],maxdepth,plotsteps) # TODO: possible the user massed a maxdepth that is greater than our slicable layer's thickness! if so, we'll lie to you (showing you a larger sliced region than we'd actually use in poppropmatKZF
-	ks=KZF(ds,*args)
-	plotDs=[ds*1e9,ds*1e9];plotKs=[ds*0,ks]
-	if 'referenceMat' in globals(): #check if variable defined: http://code.activestate.com/recipes/59892-testing-if-a-variable-is-defined/
-		ds=np.linspace(0,maxdepth,plotsteps)
-		dlayers=getCol(2)
-		klayers=getCol(1)
-		boundaries=[];rollsum=0
-		for d in dlayers:
-			rollsum=rollsum+d
-			boundaries.append(rollsum) #location of nth boundary, is just the sum of previous layer thicknesses
-		ks=np.ones(plotsteps)*klayers[0]
-		for i in range(0,len(boundaries)-1):
-			ks[ds>boundaries[i]]=klayers[i+1] #everywhere above this boundary gets set to the next k (subsuquent boundary overwrites)
-		plotDs.append(ds*1e9);plotKs.append(list(ks))
-	if len(tp)>10: #TODO: this is some bullshit method to infer whether the sliced properties matrix has been generated yet. do better. 
-		ds=np.linspace(0,maxdepth,plotsteps)
-		dlayers=getCol(2)
-		klayers=getCol(1)
-		boundaries=[];rollsum=0
-		for d in dlayers:
-			rollsum=rollsum+d
-			boundaries.append(rollsum) #location of nth boundary, is just the sum of previous layer thicknesses
-		ks=np.ones(plotsteps)*klayers[0]
-		for i in range(0,len(boundaries)-1):
-			ks[ds>boundaries[i]]=klayers[i+1] #everywhere above this boundary gets set to the next k (subsuquent boundary overwrites)
-		plotDs.append(ds*1e9);plotKs.append(list(ks))
-	figFile=""
-	if "save" in plotting:
-		figFile="pics/"+"-".join(list(map(str,args)))+plotting[4:]+".png"
-	lplot(plotDs, plotKs, "depth (nm)", "Kz(z) (W m^-1 K^-1)", markers=['k:','k-','b-','g-'], labels=[".","Kz(z)","reference layers","sliced"], filename=figFile) #,legendLoc="lower right")
-"""
 
 # KNIFE EDGE
 # https://en.wikipedia.org/wiki/Gaussian_function
@@ -2346,7 +1903,7 @@ def plotKZF(*args,plotting="show",maxdepth=2.5e-6): #USE THIS FOR PLOTTING YOUR 
 # def integGaussian(xs,A,b,c,d): # integral of a gaussian function = sqrt(pi/2)*c*erf((b-x)/(sqrt(2)*c)) ps: beam radius is 2*c
 #	return -A*np.sqrt(np.pi/2)*c*erf((b-xs)/(np.sqrt(2)*c))+d 
 
-def Gaussian(xs,A,b,radius): # Gaussian function without goofy 2*c crap: f(x)=2/π/r²*np.exp(-2*rs²/r²)
+def Gaussian(xs,A,b,radius): # Gaussian function without goofy 2*c stuff: f(x)=2/π/r²*np.exp(-2*rs²/r²)
 	return A*np.exp(-2*(xs-b)**2/radius**2)
 def integGaussian(xs,A,b,radius,d):
 	return -A*np.sqrt(2*np.pi)/4*radius*scipy.special.erf((b-xs)*np.sqrt(2)/(radius))+d 
@@ -2419,7 +1976,7 @@ def knifeEdge(f,useLast=True): # you can measure a spot size by passing the edge
 	# STEP 3: figure out guesses for fitting gaussian (integral)	
 	mean=(max(P)+min(P))/2 ; imean=np.argmin(np.abs(P-mean))	# CENTER: mean (highest,lowest point), -> X datapoint for closest P datapoint
 	b=X[imean]
-	r=5								# WIDTH: fuck it, assume radius of 5um for now (good enough)
+	r=5								# WIDTH: meh, just assume radius of 5um for now (good enough)
 	A=(max(P)-min(P))/r/np.sqrt(np.pi/2)				# MAGNITUDE: highest-lowest = 2 * A*sqrt(pi/2)*c
 	d=mean								# VERTICAL OFFSET: just the mean
 	plotX.append(X) ; plotY.append( integGaussian(X,A,b,r,d) ) ; mkrs.append(col+":")
@@ -2811,7 +2368,7 @@ def readMap(filename): # read data from SSTR fiber map files
 	pumpMs=np.sqrt(pumpXs**2+pumpYs**2)				# magnitude, from in and out of phase signal
 	probeMs=np.sqrt(probeXs**2+probeYs**2)
 	probe={"R":probeMs,"M":probeMs,"X":probeXs,"Y":probeYs}[fitting]
-	return posXs,posYs,pumpMs,probe,aux1 # WHY do we return pump and probe mag? maybe the calling user wants to do some filtering of crap data based on one or the other. TODO might consider importing aux data too?
+	return posXs,posYs,pumpMs,probe,aux1 # WHY do we return pump and probe mag? maybe the calling user wants to do some filtering of junk data based on one or the other. TODO might consider importing aux data too?
 
 sampleTemp=0 ; pumpPower=0 ; probePower=0 ; repRate=0 # i don't like it, but if additional info is in the header file, we can at least update these globals for the calling code to use
 def readTDTRdata(filename):
@@ -3280,66 +2837,6 @@ def getScaleUnits(param):
 
 
 
-
-"""
-def setParams(paramNames,values): # TODO i don't like this. should pass a dict, not two lists. two lists is dumb and gross.
-	for p,v in zip(paramNames,values):
-		conditionalPrint("setParams","setting "+p+" = "+str(v))
-		setParam(p,v)
-
-nonTPparams={"rpu":"rpump", "rpr":"rprobe", "fm":"fm", "fp":"fp", "da":"depositAt", "ma":"measureAt", 
-"gamma":"gamma", "tshift":"tshift", "chopwidth":"chopwidth","yshiftPWA":"yshiftPWA",
-"sphase":"slopedPhaseOffset","phase":"variablePhaseOffset","alpha":"alpha",
-"expA":"expA","expB":"expB","expC":"expC"}
-def setParam1(paramName,value): #given a param name, set it in the thermal properties matrix (or appropriate global for radii). note: meant for internal calls only! and really just for those values found in tofit ("K--","G-","C-","rpu","rpr") TODO should setting rpu or rpr automatically set autorpu or autorpr to False? TODO should we have one variable "r" which, which set, sets rpu=rpr to fit for both together?
-	if paramName in nonTPparams.keys():
-		varname=nonTPparams[paramName]
-		#globals()[varname]=float(value)
-		globals()[varname]=value
-	elif paramName[:-1] in ["Kz","Kr","C","G","R","d"]:
-		r,c=getRowCol(paramName)  #to fit "Kz1" -> lookup list "Kzs", and set index 0 (first layer's)
-		tp[r][c]=value
-	else:
-		warn("setParam","WARNING: unrecognized paramName "+paramName+" (skipping)")
-		return
-	if paramName=="rpu" and autorpu:
-		warn("setParam","WARNING: you set pump radius, but did not turn off automatic reading from the file (try setVar(\"autorpu\",False))")
-	if paramName=="rpr" and autorpr:
-		warn("setParam","WARNING: you set probe radius, but did not turn off automatic reading from the file (try setVar(\"autorpr\",False))")
-	if paramName=="fm" and autofm:
-		warn("setParam","WARNING: you set modulation frequency, but did not turn off automatic reading from the file (try setVar(\"autofm\",False))")
-
-
-def getParam1(paramName): #reverse of setParam
-	if paramName in nonTPparams.keys():
-		varname=nonTPparams[paramName]
-		return globals()[varname]
-	else:
-		r,c=getRowCol(paramName)
-		val = tp[r][c] #tofit's "Kz1" -> lookup list "Kzs", and read index 0 (first layer's) 
-		if val == "Kz" and paramName in tofit:		  # SPECIAL CASE: USER IS FITTING FOR (OR RUNNING SENSITIVITY FOR) Kr,
-			r,c=getRowCol(paramName.replace("r","z")) # BUT DOESN'T HAVE A SPECIFIC VALUE SET. THEY PROBABLY WANT TO INHERIT
-			val=tp[r][c]				  # THE ISOTROPIC VALUE. (e.g. see contributions of z vs r to iso sens)
-		return val	# "gotcha" to beware of: does this double count? doesn't look like it.check sensitivity for Kr1,Kz1, or Kz1,R1, with Kr1="Kz". run this with verbose=["SSTRfunc"] to make sure both are set in iso case, and only one in aniso case)
-
-def setVars(names,values): # TODO i don't like this. should pass a dict, not two lists. two lists is dumb and gross.
-	for n,v in zip(names,values):
-		setVar(n,v)
-def setVar(name,value): #meant for external calls only! literally just setting variables. TODO should have some means of checking if a variable exists or not (did the caller intend to call setParam instead?). note: checking globals() doesn't appear to work 100%
-	globals()[name] = copy.deepcopy(value)
-	conditionalPrint("setVar","setting "+name+"="+str(value))
-	#deep copy prevents fitting code from setting a calling function's thermal property matrix! consider the following:
-	#>>>a=[[1,2,3,4][2,3,4,5],[3,4,5,6]]
-	#>>>def setElement22(l,v):
-	#>>>	l[2][2]=v
-	#>>>setElement22(a,7)
-	#>>>print(a # --> [[1,2,3,4][2,3,4,5],[3,4,7,6]])
-	#other common strategies for copying, like passing in a[:] or list(a) or copy.copy(a) aren't deep enough! since the elements of "a" are themselves objects
-
-def getVar(name): #useful for external calling: your calling script's "fm" won't necessarily match module TDTR_fitting's "fm". (eg, after readTDTR set it for you)
-	return globals()[name]
-"""
-
 def getTofitVals():#read the values corrosponding to the variable names in tofit, from thermal properties matrix
 	values=[]
 	for name in tofit:
@@ -3365,36 +2862,7 @@ def lookupBounds():
 			conditionalPrint("lookupBounds","using custom bounds:"+str(lb)+"<"+param+"<"+str(ub))
 		bnds[0].append(lb) ; bnds[1].append(ub)
 	return bnds
-"""
-def lookupBounds():
-	bnds=[[],[]] #set up bounds (done based on fitting parameter type (Ks use different bounds from Cs)
-	for param in tofit:
-		#print(tofit,param)
-		p=param
-		if param not in nonTPparams.keys():
-			p=p[:-1]
-		#else:
-		#	p=nonTPparams[p]
-		#lb=g*0.05;ub=g*20.
-		lb=lbs[p];ub=ubs[p]
-		#lb=g*.125 ; ub=g*2.0
-		if param in customBounds.keys():
-			lb,ub=customBounds[param]
-			conditionalPrint("lookupBounds","using custom bounds:"+str(lb)+"<"+param+"<"+str(ub))
-		bnds[0].append(lb);bnds[1].append(ub) #guesses=[var1guess,var2guess,var3guess...], bounds=((var1lower,var2lower,...)(var1upper,...))
-		
-		if "K" in param:
-			zr=param[1] ; n=param[2:] ; other={"z":"r","r":"z"}[zr] ; other="K"+other+n
-			#print(other)
-			if other not in tofit and not isinstance(getParam(other),str): # fit both? or fitting Kz, and Kr=="Kz"? normal bounds
-				conditionalPrint("lookupBounds","anisotropic bounds enacted: "+str(param))
-				anisobounds=list(sorted( [ getParam(other)*v for v in LBUB["anisotropy"] ] ))
-				#print(bnds,anisobounds)
-				bnds[0][-1]=max([bnds[0][-1],anisobounds[0]]) # lower bound from lbs, vs lower bound based on anisotropy
-				bnds[1][-1]=min([bnds[1][-1],anisobounds[1]])
-	conditionalPrint("lookupBounds","found bounds: "+str(bnds))
-	return bnds
-"""
+
 
 def prettyPrint(pop=True): # TODO: "print("a = %6.2f +/- %4.2f" % (a_opt, Da))" -> "a =   2.02 +/- 0.06" we should take advantage of this
 	if pop:
@@ -3409,57 +2877,6 @@ def prettyPrint(pop=True): # TODO: "print("a = %6.2f +/- %4.2f" % (a_opt, Da))" 
 	   "\n chopwidth: "+str(chopwidth)+"\n tshift: "+str(tshift)+"\n yshiftPWA: "+str(yshiftPWA))
 	print("ids:",id(Cs),id(Kzs),id(ds),id(Krs),id(Gs))
 
-"""
-def solveSimultPlotting(lsqout,ts,data,listOfFiles,plotting="show",paramString=""): #"plotting" options include: show, save, none. (paramString is shown instead of "tofit[0]=val,..."
-	#compute decay curves (extract from lsqout, lsqout["fun"] is already dz=data-func)
-	funcPts=np.asarray(data)-lsqout["fun"].reshape((len(data),len(ts)))
-	#compute R² fit values
-	residuals=[];resList=""
-	for f,d in zip(funcPts,data):
-		residual=error(d,f)
-		residuals.append(residual)
-		#print(resList,type(resList),scientificNotation(residual),type(scientificNotation(residual)))
-		resList=resList+scientificNotation(residual)+" "
-	if plotting=="none": #if no plotting, return residuals, else, construct plot
-		return residuals
-	#assemble list of values we found (for the plot)
-	if len(paramString)>0:
-		calcLabel=paramString
-	else:
-		calcLabel=""
-		for i in range(0,len(tofit)): #for each fitting parameter
-			calcLabel=calcLabel+tofit[i]+"="+str(scientificNotation(lsqout['x'][i]))+" "
-		#val=lsqout['x'][i] #the value we found
-		#expo=int(np.floor(np.log(val)/np.log(10.))) #express as scientific notation; extract the exponential
-		#val=str(round(val/10.**expo,2))+"e"+str(expo)
-		#calcLabel=calcLabel+tofit[i]+"="+str(val)+" "
-	#assemble markers (dots for datapoints, lines for generated curve)
-	mkrs=['.']*len(data)+['-']*len(data)
-	#assemble labels for legend
-	labels=[]
-	for f in listOfFiles:
-		fname=f.split("/")[-1]
-		if len(fname)>40:
-			fname=fname[:40-len(fname.split('_')[-1])]+"..."+fname.split('_')[-1]
-		labels.append(fname)
-	for f in listOfFiles:
-		fmod=".".join(f.split("_")[-1].split(".")[:-1]).replace("MHz","e6") #11122020_MURI42_1_152133_8.80MHz.txt -> 8.80MHz  in PLSB or 12172019_Si-Kr_500kV-1e12_2_163315_8400000.txt -> 8400000 in HQ
-		#fmod=scientificNotation(int(fmod),2)
-		labels.append(calcLabel+", "+fmod)
-	title=listOfFiles[0].split("/")[-1] #media/Media/Class stuff/U Virginia/Research/DATA/Pfeifer_Thomas/2019_12_17_HQ/12172019_Si-Kr_500kV-1e12_2_163315_8400000.txt -> 12172019_Si-Kr_500kV-1e12_2_163315_8400000
-	title="_".join(title.split('_')[1:4]) #12172019_Si-Kr_500kV-1e12_2_163315_8400000 -> Si-Kr_500kV-1e12_2
-	figFile=""
-	if plotting=="save":
-		figFile="/".join(listOfFiles[0].split("/")[:-1])+"/"+callingScript+"/pics/"+title+".png"
-		#print(figFile)
-	#if len(altFnames)>0:
-	#	figFile=altFnames+[figFile]
-	#other plotting business
-	ylabel={"R":"Ratio (-X/Y)","M":"Mag (uV)","X":"X (uV)","Y":"Y (uV)"}[fitting]
-	xdata=[ts]*(len(data)*2) ; ydata=list(data)+list(funcPts)
-	lplot(xdata, ydata, "time delay (s)", ylabel, markers=mkrs, labels=labels, filename=figFile, title=title+", R^2="+resList)
-	return residuals
-"""
 
 def runningAverage(Ys,N):
 	if N<2:
@@ -3657,7 +3074,7 @@ def genContour3D(fileIn,fileOut='',paramRanges='',paramResolutions='',overwrite=
 		np.savetxt(fileOut+"_"+str(n), residuals[:,:,n], delimiter=",",header=header)
 	return fileOut
 
-# TODO TODO TODO how should genContour2D receive a list of types when passing a list of files? currently, ss2 receives a list of types when you give it the multiple files. predictUncert receives them in a dict too (for what file types to create). previously, genContour2D assumed based on ss2Types and shit, and/or magicMods global. but that shit's nasty. 
+# TODO TODO TODO how should genContour2D receive a list of types when passing a list of files? currently, ss2 receives a list of types when you give it the multiple files. predictUncert receives them in a dict too (for what file types to create). previously, genContour2D assumed based on ss2Types and friends, and/or magicMods global. but that's nasty. 
 # fka generateHeatmap, which used to do 2D or 3D. we have since split this apart into genContour2D and genContour3D. similarly, displayHeatmap has been split into displayContour2D and displayContour3D. We also incorporated "Wafer Bonding/isSSTRneeded.py > flat3DContour" into genContour2D, where we can basically "flatten" an N-dimensional parameter space into 2D. instead of "for each combination of 2 fitted parameters, check the residual" it is "for each combination of 2 (or 2 or more) fitted parameters, run fitting (on the remaining parameters) and check the residual". This is similar in spirit to measureContour1Axis, which is "for a range of values for 1 fitted parameter, run fitting on the remaining". This is all tested via testing61.py
 def genContour2D(fileIn,fileOut='',paramRanges='',paramResolutions='',overwrite=False,solveFunc=None,settables={}): #[[parameter1lowerbound, parameter1upperbound], [parameter2lowerbound, parameter2upperbound]]
 	tofit=getVar("tofit") ; tf=getVar("tofit")
@@ -3669,7 +3086,7 @@ def genContour2D(fileIn,fileOut='',paramRanges='',paramResolutions='',overwrite=
 	# stated differently, consider the 2D flattened contour for SSTR: set 2 parameters, fit for the 3rd, you will *always* find a good fit,
 	# meaning the flattened contour bounds for SSTR are "all values". overlap "all values" with "whatever TDTR finds" would (wrongly) suggest
 	# that SSTR+TDTR is no better than TDTR alone. 
-	if solveFunc is None: # measureContour1Axis is the rare exception to *just* using mode: eg, we still want to be able to pass in solveKZF shit
+	if solveFunc is None: # measureContour1Axis is the rare exception to *just* using mode: eg, we still want to be able to pass in solveKZF stuff
 		#solveFunc={"TDTR":solveTDTR,"SSTR":solveSSTR,"FDTR":solveFDTR,"PWA":solvePWA,"FD-TDTR":solveSimultaneous}[mode]
 		solveFunc={"func":solve,"kwargs":{}}
 
@@ -3795,7 +3212,7 @@ def displayContour2D(csvFile='', plotting="show", residuals='', ranges='', label
 	lcontour(residuals.T, x, y, **kwargs) # updated lcontour > nicecontour expects z[y,x], but the genContour2D files read in as z[x,y], so we need to transpose it here
 
 # fka displayHeatmap, which handled 2D or 3D. we have since split this into displayContour2D and displayContour3D. similarly, generateHeatmap has been split into genContour2D and genContour3D. We also incorporated "Wafer Bonding/isSSTRneeded.py > flat3DContour" into genContour2D, where we can basically "flatten" an N-dimensional parameter space into 2D. instead of "for each combination of 2 fitted parameters, check the residual" it is "for each combination of 2 (or 2 or more) fitted parameters, run fitting (on the remaining parameters) and check the residual". This is similar in spirit to measureContour1Axis, which is "for a range of values for 1 fitted parameter, run fitting on the remaining". This is all tested via testing61.py
-def displayContour3D(csvFile='', plotting="show", residuals='', ranges='', labels='', threshold=0.025, title='', elevAzi=[36,-60],projected=True,bonusCurveFiles='',useLast=False,fileSuffix=".png",booleanCombine="intersection",levels=[.001,.005,.01,.025,.05,.1,.2,.3,.4,.5,.6],cmap="inferno",alpha=.25): # lifehack: 3D contours look like shit. use custom levels to select which 3D surfaces you want plotted, use elevAzi and custom filename ("plotting=filename") to make gifs of your 3D contours rotating and stuff! if your papers look bad, at least your presentations can look fire. 
+def displayContour3D(csvFile='', plotting="show", residuals='', ranges='', labels='', threshold=0.025, title='', elevAzi=[36,-60],projected=True,bonusCurveFiles='',useLast=False,fileSuffix=".png",booleanCombine="intersection",levels=[.001,.005,.01,.025,.05,.1,.2,.3,.4,.5,.6],cmap="inferno",alpha=.25): # lifehack: 3D contours look like garbage. use custom levels to select which 3D surfaces you want plotted, use elevAzi and custom filename ("plotting=filename") to make gifs of your 3D contours rotating and stuff! if your papers look bad, at least your presentations can look fire. 
 	conditionalPrint("displayHeatmap","received file(s) : "+str(csvFile))
 
 	if type(csvFile)==list:
@@ -4019,13 +3436,6 @@ def Ttzr(mindepth=0,maxdepth=1500e-9,dsteps=50,rsteps=50,maxradius=0,tsteps=50):
 	conditionalPrint("Ttzr",str(time.time())+" stack finished")
 	return z
 
-def melt(T,Tmelt,Hmelt,Cmat): # given a temperature map (T(r,z), and melting params (melt temp (K), latent heat (J/m3), and heat capacity (J/m3/K), simply apply a temperature offset based on effective temperature H/C, ie "how much would the temperature have risen if melting had not occurred"
-	dTmelt=Hmelt/Cmat # J/m³ / J/m³/K = K
-	maskA=np.zeros(np.shape(T)) ; maskB=np.zeros(np.shape(T))
-	maskA[T>=Tmelt+dTmelt]=1 ; maskB[T>=Tmelt]=1 ; maskB[T>=Tmelt+dTmelt]=0
-	T[maskA==1]-=dTmelt ; T[maskB==1]=Tmelt
-	return T,dTmelt
-
 def integrateRadial(I,r): # works if I is 1D (list of radii), or if I is 2D (n timesteps x n radii)
 	#print("integrateRadial",np.shape(I),np.shape(r),np.shape(np.trapz(I*r,x=r)*np.pi*2))
 	return np.trapz(I*r,x=r)*np.pi*2
@@ -4077,7 +3487,7 @@ def updatePTPPB(paramsToPerturb,perturbBy):
 # TODO: "if asymmetricUncertainty: sort into positives and negatives (see testing74.py)"
 def perturbUncertainty(fileToRead,paramsToPerturb='',perturbBy='',plotting="none",reprocess=True,solveFunc=None): 
 	#conditionalPrint("perturbUncertainty",str(fileToRead)+","+str(paramsToPerturb)
-	if solveFunc is None: # measureContour1Axis and perturbUncertainty are both the rare exception to *just* using mode: eg, we still want to be able to pass in solveKZF shit
+	if solveFunc is None: # measureContour1Axis and perturbUncertainty are both the rare exception to *just* using mode: eg, we still want to be able to pass in solveKZF stuff
 		solveFunc={"func":solve,"kwargs":{"plotting":plotting}} # solveFunc should hold the func and a dict of kwargs
 
 	# filename for saving val,residual,remainingparamsfittedvals
@@ -4400,10 +3810,10 @@ def netResistivityFrom1Axis(datafile,threshold,paramOfInterest=tofit[0]):
 # why the re-write of this entire chain? it makes preductUncert much *much* cleaner when trying your "atypical" stuff like mfSSTR or SSTR+TDTR (predictUncert's "settables" ought to handle it all)
 # TODO usage, for ratio/magnitude TDTR for example: 
 # measureContour1Axis([f,f], "R1" , threshold=0.025, plotting="savefinal", solveFunc={"func":ss2,"kwargs":{"settables":{"fitting":["M","R"]}}} )
-# TODO this shit's absolutely unhinged (a three-deep dict? ffs. is there a way to make this more sane? 
+# TODO these dicts are absolutely unhinged (a three-deep dict? wow. is there a way to make this more sane? 
 def measureContour1Axis(fs, paramOfInterest, ranges='', resolution=100, threshold=0.025, plotting="none", solveFunc=None, customParamControl='', nworkers=7, title='',extend=True,overwrite=False):
 	#print("fs",fs)
-	if solveFunc is None: # measureContour1Axis is the rare exception to *just* using mode: eg, we still want to be able to pass in solveKZF shit
+	if solveFunc is None: # measureContour1Axis is the rare exception to *just* using mode: eg, we still want to be able to pass in solveKZF stuff
 		#solveFunc={"TDTR":solveTDTR,"SSTR":solveSSTR,"FDTR":solveFDTR,"PWA":solvePWA,"FD-TDTR":solveSimultaneous}[mode]
 		solveFunc={"func":solve,"kwargs":{}} # solveFunc should hold the func and a dict of kwargs
 	# filename for saving val,residual,remainingparamsfittedvals
@@ -4443,7 +3853,7 @@ def measureContour1Axis(fs, paramOfInterest, ranges='', resolution=100, threshol
 		results=parallel(mc1aWorker,args,nworkers)
 
 		vals=list(vals)
-		residuals=[r[1][0] for r in results] # mc1aWorker returns solve's r,e --> e. r contains residual and some other shit
+		residuals=[r[1][0] for r in results] # mc1aWorker returns solve's r,e --> e. r contains residual and covariance matrix i think
 		paramvals=[r[0] for r in results]
 		#vals=np.asarray([r[2] for r in results])
 		
@@ -4489,7 +3899,7 @@ def measureContour1Axis(fs, paramOfInterest, ranges='', resolution=100, threshol
 			for v,e,r in zip(vals,residuals,paramvals):
 				s=str(v)+"\t"+str(e)+"\t"+"\t".join(list(map(str,r)))+"\n"
 				f.write(s)
-		# finally, restore all the other shit we fudged with
+		# finally, restore all the other stuff we messed with
 		tofit=tofit_old
 		tp=copy.deepcopy(tp_old)
 
@@ -4635,50 +4045,6 @@ def whichTechniqueShouldIUse(threshold): # TODO use caution when calling and re-
 	#tp=tp_old
 	return ranges
 
-"""
-def predictUncert_v01(addedNoise=.003,regen=True,threshold=.025,nworkers=3,filesOnly=False,subdir="tdtrcache",allParams=False): # runs measureContour1Axis for tofit parameters
-	global mode
-	# Step 1, generate the fake data file(s) on which we'll run contour uncertainty
-	# 1.a: for simultaneous solving, use ss2Types, else, use mode: put it in a list for easy iteration
-	if len(ss2Types)>0:
-		conditionalPrint("predictUncert","types: "+str(ss2Types)+" fms: "+str(ss2fms)+" rpus: "+str(ss2rpus)+" rprs: "+str(ss2rprs)+" magic: "+str(magicMods))
-	modes={True:ss2Types,False:[mode]}[len(ss2Types)>0]
-	# 1.b: for each mode, figure out the filename (where we'll save the generates fake data)
-	fnames=[subdir+"/predictUncert_"+m+"_"+str(i)+".txt" for i,m in enumerate(modes)]
-	conditionalPrint("predictUncert","generating fake data into file(s):"+str(fnames))
-	if regen and os.path.exists(subdir+"/"):	# remove previous run's saved contour files
-		shutil.rmtree(subdir+"/",ignore_errors=True)
-	# 1.c for each mode, generate x axis datapoints, and pass them into the function which generates the data
-	for i,(f,mode) in enumerate(zip(fnames,modes)):
-		if len(ss2Types)>0:
-			setParam("fm",ss2fms[i]) ; setParam("rpr",ss2rprs[i]) ; setParam("rpu",ss2rpus[i])
-			for var in magicMods.keys():
-				setVar(var,magicMods[var][i])
-		xs={    "TDTR":np.logspace(np.log(300e-12)/np.log(10),np.log(5.5e-9)/np.log(10),30) ,
-			"SSTR":np.linspace(getVar("Pow")/100,getVar("Pow"),30) , 
-			"FDTR":np.logspace(2,7,100) , 
-			"PWA":np.linspace(0,1/fm,1024,endpoint=False) , # TODO use of dict here is weird. each element executes even if it's not selected, which is wasteful, and more importantly, crashes if you, say, are running hypothetical contours on fdtr and pass a dummy fm of zero
-			"FD-TDTR": np.linspace(minimum_fitting_time,5500e-12,40) }[mode]
-		conditionalPrint("predictUncert","generating "+mode+" data with params:",pp=True)
-		ys=func(xs,store=f,addNoise=addedNoise)
-	if filesOnly:
-		return fnames
-	# Step 2, run contour uncertainty!
-	# 2.a solver function and what we pass to it is either ss2, or solve(), and a list, or singular file, depending on if simultaneous or not
-	solver={True:ss2,False:solve}[len(ss2Types)>0] ; fname={True:fnames,False:fnames[0]}[len(ss2Types)>0]
-	conditionalPrint("predictUncert","using function "+str(solver)+" for solving")
-	# 2.b prepare for measureContour1Axis with any special actions, eg, TDTR needs doPhasecorrect=False in order to read fake files correctly
-	#setVar("doPhaseCorrect",False) # update, no longer needed? added a min(ts) check to phaseCorrect()
-	# 2.c do it!  
-	#for p in tofit: # do we want to run contours for all tofit params? or just the first one?
-	p=tofit[0] ; v=getParam(p)
-	valRange,fout=measureContour1Axis(fname, p, plotting="savefinal", resolution=120, ranges=[v*.25,v*1.75], extend=False, threshold=threshold, nworkers=nworkers, solveFunc=solver)	# mC1A > solve > various depending on mode
-	if allParams:
-		for p in tofit[1:]:
-			v=getParam(p)
-			vR,fo=measureContour1Axis(fname, p, plotting="savefinal", resolution=120, ranges=[v*.25,v*1.75], extend=False, threshold=threshold, nworkers=nworkers, solveFunc=solver)	# mC1A > solve > various depending on mod
-	return valRange
-"""
 
 
 tsize='' ; lastProg=-1
