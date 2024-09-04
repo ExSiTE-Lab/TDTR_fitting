@@ -1,4 +1,4 @@
-# v0.75 (goes with 0.165)
+# v0.76 (goes with 0.166)
 import matplotlib,time,datetime,threading,os,sys
 import tkinter as tk
 import multiprocessing ; multiprocessing.freeze_support() # https://stackoverflow.com/questions/32672596/pyinstaller-loads-script-multiple-times
