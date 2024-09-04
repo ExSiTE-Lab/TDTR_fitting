@@ -177,7 +177,13 @@ def Gkomega(ks="",omegas="",partial=False):
 #END: Ĝ(k,ω)=-D/C #Jiang eq 2.9 / Schmidt eq 7
 
 # ΔT𝘴𝘶𝘳𝘧𝘢𝘤𝘦(ω)=A₁/2*π ∫ k*Ĝ(k,ω)*exp(-k²*(rᵣ²+rᵤ²)/8)*dk ; from 0 to ∞ #Schmidt eq 8 (analagous to Jiang's ΔT𝘴𝘶𝘳𝘧𝘢𝘤𝘦(ω)=A₁ ∫ Ĝ(k,ω)*exp(-π²*k²*w₀²)*2*π*k*dk)
-from scipy.integrate import trapz,simps,romb,quad
+try:	# old scipy had shortened names
+	from scipy.integrate import trapz,simps,romb,quad
+except:
+	from scipy.integrate import romb,quad
+	from scipy.integrate import trapezoid as trapz
+	from scipy.integrate import simpson as simps
+
 from scipy.special import jv,erf
 pumpShape="gaussian" ; probeShape="gaussian" ; xoff=10e-6
 hybridFactors=[1] # TODO currently hybridFactors are used in the order: gaussian,tophat,ring,offset. ideally we'd follow whatever order is in pumpShape (e.g. pumpShape="ring+tophat" would reverse the order)
@@ -1269,7 +1275,8 @@ tshift=0 ; chopwidth=5 ; normPWA=True ; yshiftPWA=0 ; centerY=False ; waveformPW
 timeMaskPWA="0:10,50:60" 	# "apply a mask to the PWA data, eg, only fitting data between 0-10% and 50-60% of the cycle"
 timeNormPWA="25,75,10"		# "when normalizing the data, pick points 25 and 75% of the way along, and use those as max/min"
  # TODO: generalizing this code to handle more waveforms, also means the normalization code (written for square waves) fails and gives you really confusing results (including sign inversions and the likes). so we should fix that, or at the very least, stop defaulting to norm.
-# a low-frequency square-wave heating is applied, and the rise and fall for each "heater on" / "heater off" event is measured (time dependant). The temperature response for this can be modeled as a fourier series representation of a square wave. 
+# a low-frequency square-wave heating is applied, and the rise and fall for each "heater on" / "heater off" event is measured (time dependant). The temperature response for this can be modeled as a fourier series representation of a square wave
+# TODO some more thought could probably be put into this nromalization. e.g. if your cycle is long enough for the sample to return to "zero" dT, then using your 34ths cycle point for normalization might mean your model dips below zero temperature? that's not right! (think about ns-TTR: one mormalization procedure might be to use the longest-time-delay datapoint and "call it zero". or if you suspect there is left-over heating, you could at least normalizing using that last point). maybe for really nice square waves (not rounded-off. truly waveformPWA="square" instead of "square-gauss") you could use the 95% time point for normalization. 
 # NORMALIZATION CONVENTION:		 .  _..---       .  _..---       .  _..---
 # halfway through first rise is t=0	  /      |        /      |	  /      |
 # 1/4th period in is normalized to 1	 /       |       /       |       /
@@ -3128,7 +3135,9 @@ def genContour2D(fileIn,fileOut='',paramRanges='',paramResolutions='',overwrite=
 
 	global solveResidualOnly
 
-	def solveResidualOnly(parameterValues,fileIn):
+	def solveResidualOnly(parameterValues,fileIn,ct=[0]):
+		ct[0]+=1
+		conditionalPrint("generateHeatmap","running for parameter combo "+str(tofit[:2])+"="+str(parameterValues)+" - "+str(ct[0]))
 		setParams(tofit[:2],parameterValues)
 		r,e=solveFunc["func"](fileIn,plotting="none",**solveFunc["kwargs"])
 		return e[0]
@@ -3138,8 +3147,16 @@ def genContour2D(fileIn,fileOut='',paramRanges='',paramResolutions='',overwrite=
 	#print(paramRanges[:2],paramResolutions[0],getVar("tofit"),fileOut)
 
 	#ITERATE ACROSS ALL COMBINATIONS OF VALUES: USE SCIPY.BRUTE IF 3D OR IF nX==nY, OTHERWISE, FOR-LOOPS
-	x0, fval, grid, jout = brute(solveResidualOnly, paramRanges[:2], args=[fileIn], Ns=paramResolutions[0], full_output=True, workers=-1, finish=None)
-	residuals=jout
+	if os.name=="posix":
+		conditionalPrint("generateHeatmap","unixlike detected. using scipy.brute")
+		x0, fval, grid, jout = brute(solveResidualOnly, paramRanges[:2], args=[fileIn], Ns=paramResolutions[0], full_output=True, workers=-1, finish=None)
+		residuals=jout
+	else:
+		conditionalPrint("generateHeatmap","there is a weird bug with scipy.brute launching a bajillion tk windows. looping instead")
+		residuals=np.zeros(paramResolutions)
+		for i,x in enumerate(np.linspace(xlb,xub,xr)):
+			for j,y in enumerate(np.linspace(ylb,yub,yr)):
+				residuals[i,j]=solveResidualOnly([x,y],fileIn)
 
 	#CLEANUP,
 	setVar("tofit",tf)
