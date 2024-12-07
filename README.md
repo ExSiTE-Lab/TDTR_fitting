@@ -3,6 +3,7 @@ This is a python code package for analyzing Time Domain Thermoreflectance (TDTR)
 This code comes in two parts: 
 TDTR_fitting.py - contains all the required functions (analytical model solved in fourier space, functions which generate the model curve for each measurement type, fitting functions, monte carlo uncertainty, contour analysis)
 gui.py - a rudimentary graphical user interface which calls on the functions inside TDTR_fitting.py
+The code also relies on https://github.com/ExSiTE-Lab/niceplot for plotting
 
 Most users will want to use the GUI. If you're on mac or linux, you can simply download and run "TDTRfitting_git.sh" which should download all required files and kick off the gui (you will always have the latest version of the code!)
-Advanced users may find it convenient to call into the 
+coding-saavy users may find it convenient to write their own python code, importing and calling the functions from TDTR_fitting.py. An example of this is in fitting_external.py. This is useful when fitting large datasets comprised of many many acquisitions. 
