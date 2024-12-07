@@ -215,16 +215,25 @@ def setFigSize(name,val):
 	setFigDPI(val)
 	setGuiVar(name,val)
 def setList(name,val):
+	
 	if len(val)>0:
 		val=s2l1D(val)
 	else:
 		val=[]
 	setVar(name,val)
 def getList(name):
-	return l2s1D(getVar(name))
+	var=getVar(name)
+	if isinstance(var,list):
+		return l2s1D(getVar(name))
+	return str(var)
 def getRad(var): # simply converts TDTR_fitting.py's "m" into gui.py's "um"
-	return getParam(var)*1e6
+	return str(getParam(var)*1e6)
 def setRad(var,val):
+	if "," in val:	# HACKY TRICK TO PASS IN AN OFFSET DISTANCE. rpr='1.5', rpu='1.5,0.1' will have pump radius 1.5 offset spatially by 0.1 um
+		val=val.split(",")
+		setVar("xoff",float(val[1])*1e-6)
+		val=val[0]
+	val=float(val)
 	setParam(var,val*1e-6)
 # each variable needs an internal name and an alias for an externally-vieable name, a set and get function, a type (text entry, dropdown), a default, and which frame it will be placed in
 fields={"rpr"      :{"alias":"probe r (μm)"   ,"setter":setRad  ,"getter":getRad   ,
@@ -262,10 +271,10 @@ fields={"rpr"      :{"alias":"probe r (μm)"   ,"setter":setRad  ,"getter":getRa
 	"mode"     :{"alias":"experiment"    ,"setter":setVar    ,"getter":getVar     ,
 		     "type":"drop" ,"value":"TDTR;TDTR;SSTR;PWA;FDTR;FD-TDTR"      ,"where":"US"},
 	"pumpShape":{"alias":"pu profile"    ,"setter":setVar    ,"getter":getVar     ,
-		     "type":"drop" ,"value": "gaussian;gaussian;gaussian_numerical;tophat;ring;ring_numerical","where":"US3"},
+		     "type":"drop" ,"value": "gaussian;gaussian;gaussian_numerical;tophat;ring;ring_numerical;offset","where":"US3"},
 	"tshift"   :{"alias":"t shift (s)"   ,"setter":setVar    ,"getter":getVar     ,
 		     "type":"entry","value":getVar("tshift") ,"where":"PWA" },
-	"chopwidth":{"alias":"sq. width (%)" ,"setter":setVar    ,"getter":getVar     ,
+	"chopwidth":{"alias":"sq. width (%)" ,"setter":setList    ,"getter":getList     ,
 		     "type":"entry","value":getVar("chopwidth"),"where":"PWA"  },
 	"minimum_fitting_time":{"alias":"t min (s)","setter":setVar,"getter":getVar   ,
 		     "type":"entry","value": getVar("minimum_fitting_time")     ,"where":"TDTR" },
@@ -513,7 +522,7 @@ def updatePlot(whatWasRunning,fig=None,ax=None):
 		else:
 			ax,fig=getPlotObjs()
 			# if there are multiple datasets, update the color of later ones
-			newcols=['r','orange','g','b','purple', # https://matplotlib.org/stable/gallery/color/named_colors.html
+			newcols=['g','orange','b','r','purple', # https://matplotlib.org/stable/gallery/color/named_colors.html
 					'firebrick','darkorange','darkgreen','darkblue','indigo',
 					'tomato','goldenrod','yellowgreen','cornflowerblue','mediumslateblue']
 			newcols=newcols+newcols+newcols+newcols+newcols
@@ -792,7 +801,7 @@ def runTRZ(event):
 	maxrad={True:getParam("rpu"),False:max(getVar("xoff"),getParam("rpu"))}["offset" in getVar("pumpShape")]*1.5
 	#maxrad=getParam("rpu")*1.5
 	nrz=50 ; nt=1000 ; npics=250
-	omegas=np.asarray([0.01,getParam("fm")*2*pi]) # TRUE TEMPERATURE RISE IS SUM OF SS + MODULATED
+	omegas=np.asarray([0.001,getParam("fm")*2*pi]) # TRUE TEMPERATURE RISE IS SUM OF SS + MODULATED
 
 	# Options include: X;M;gen-gif;play-gif;T(r,z=0,t=0);T(rpr,z=0,t)
 	if fields["asgif"]["value"] in ["X","M"]:
@@ -1098,7 +1107,7 @@ def refresh(event):
 	return
 
 @wrapper
-def simult(event,rerun=False):
+def simult1(event,rerun=False):
 	global lastrun ; lastrun="simult"
 	if rerun:
 		r,e=ss2(ss2f,ss2t,plotting="save")
@@ -1150,6 +1159,106 @@ def simult(event,rerun=False):
 		simultRunning=False
 	bu2.bind("<Button-1>",onclick)
 	bu2.pack()
+
+@wrapper
+def simult(event,rerun=False):						# [   run button    ] [ "file" label     ] [ "meas. type"  ] [ "globals" ]
+	global lastrun ; lastrun="simult"				# [ add file button ] [ file entry field ] [ type dropdown ] [ globals field ]
+	if rerun:							#  ...
+		r,e=ss2(ss2f,ss2t,plotting="save")			#   ...		add file button adds the text to the file entry field
+		#r,e=ss3(ss2f,ss2t,plotting="save")			#    ...	clicking "run" collects everything up and runs ss2
+		out(str((r,e)))
+		global lastSolution ; lastSolution=r
+		return
+	simultRunning=True
+	newWin=tk.Toplevel(window)
+	newWin.title("super simultaneous") #; newWin.minsize(500,10)
+	global files
+	files=[] ; fileentries=[] ; typedrops=[] ; gloentries=[]
+	def addFile(event):
+		rowID=int(str(event.widget)[-1])-2 	# janky hack! second button we added is in row 0 (first was to run) so we take the name...
+		#print(event.widget,rowID)		# e.g. ".!toplevel.!button2" and use this to infer the row ID
+		global files
+		newfiles=list(tk.filedialog.askopenfilenames())
+		files[rowID:rowID+len(newfiles)]=newfiles
+		for i,en in enumerate(fileentries):
+			if i>=len(files):
+				continue
+			en.delete(0,tk.END) ; en.insert(0,files[i].split("/")[-1])
+	def runSimult(event):
+		global simultRunning,files
+		# for each row, collect up the filename, file type, and magic args
+		for i,en in enumerate(fileentries):
+			f=en.get()
+			if f not in files[i]:
+				files[i]=f
+		types=[ opt.get() for opt in typedrops ]
+		magic=[ en.get() for en in gloentries ]
+		# filter (ignore empty rows with no file)
+		types=[ t for t,f in zip(types,files) if len(f)>3 ]
+		magic=[ m for m,f in zip(magic,files) if len(f)>3 ]
+		files=[ f for f in files if len(f)>3 ]
+		print(files,types,magic)
+		#r,e=ss2(files,types,plotting="save")
+		settables={}
+		for m in magic:	# e.g. "fitting=R,whatever=value", one for each row
+			pieces=m.split(",")
+			for piece in pieces:
+				if "=" not in piece:
+					continue
+				glo,val=piece.split("=")
+				if glo not in settables.keys():
+					settables[glo]=[]
+				if isNum(val):
+					val=float(val)
+				settables[glo].append(val)
+		# TODO if the user is clumsy and doesn't set a global in each, bad things happen? esp if you don't set it in the first one, the first file inherits the second files global value?
+		#r,e=ss2(files,types,plotting="save",settables=settables)
+		global ss2f,ss2t ; ss2f=files ; ss2t=types
+		log("files:"+str(files)+","+str(types))
+		bu=event.widget
+		bu.configure(text="RUNNING") ; newWin.update()
+		updateStatus("RUNNING","blue")
+		try:
+			r,e=ss2(files,types,plotting="save",settables=settables)
+		except:
+			updateStatus("ERRORED","red")
+			out("ERROR WITH FUNC:"+str(ss2)+", please send your gui.log file to the developer. Windows: log file can be found in the same folder as the executable. MacOS: log file can be found in your \"home\" folder.") # if we DID crash, tell the user
+			exc=traceback.format_exc()					# get the call stack / crash log
+			log("[FAILURE] : \n")						# and log that to file
+			log(exc)
+			out(exc)
+		newWin.destroy()
+		#r,e=ss3(files,types,plotting="save")
+		if getVar("autoFailed"):
+			out("WARNING: auto rpu/rpr/fm failed. check your file headers and/or radii.txt file! or change auto to \"no\" and set the values yourself")
+		out(str(r)+","+str(e)) # TODO we had a sneaky bug here, where this line crashed with "out(str(r,e))", and we never noticed, because i guess the newWin process crashed, not the main, or something like that (onclick just ended, no problem!) we only noticed because lastSolution wasn't correctly populated. could there be other stuff like this?
+		global lastSolution ; lastSolution=r
+		simultRunning=False
+
+	runbutton=tk.Button(master=newWin,text="RUN")
+	runbutton.bind("<Button-1>",runSimult)
+	runbutton.grid(row=0,column=0,sticky="NSEW")
+	for i,l in enumerate(["file name","meas. type","custom glos"]):
+		lb=tk.Label(master=newWin,text=l)
+		lb.grid(row=0,column=i+1,sticky="NSEW")
+	
+	for i in range(6):
+		bu=tk.Button(master=newWin,text="add file")
+		bu.bind("<Button-1>",addFile)
+		bu.grid(row=i+1,column=0,sticky="NSEW")
+		en=tk.Entry(master=newWin,width=50)
+		en.grid(row=i+1,column=1,sticky="NSEW")
+		fileentries.append(en)
+		files.append("") # empty entry so we don't crap out on indices later
+		opt=tk.StringVar(master=newWin)					# selected option is stored in a stringVar object
+		val="TDTR" ; options=["TDTR","SSTR","FDTR","PWA"]
+		opt.set(val)
+		drop = tk.OptionMenu(newWin, opt, *options)
+		drop.grid(row=i+1,column=2,sticky="NSEW")
+		typedrops.append(opt)
+		en=tk.Entry(master=newWin,width=50)
+		en.grid(row=i+1,column=3,sticky="NSEW")
+		gloentries.append(en)
 
 @wrapper
 def predUnc(event):
@@ -1238,7 +1347,8 @@ def runMonte(event):
 		print(tf[0],x,tf[1],y,r*100,"%")
 	fileOut=genContour2D(files[0],paramRanges=pr)
 	displayContour2D(fileOut,plotting="save",bonusXY=[xs,ys,residual])
-	out(tf[0]+"="+str(np.round(np.mean(xs),2))+"+/-"+str(np.round(np.std(xs),2))+" "+unitsDict[tf[0][:-1]]+", "+tf[1]+"="+str(np.round(np.mean(ys),2))+"+/-"+str(np.round(np.std(ys),2))+" "+unitsDict[tf[1][:-1]])
+	factorsAndUnits=[ getScaleUnits(param) for param in tf ]
+	out(tf[0]+"="+str(np.round(np.mean(xs),2))+"+/-"+str(np.round(np.std(xs),2))+" "+factorsAndUnits[0][1]+", "+tf[1]+"="+str(np.round(np.mean(ys),2))+"+/-"+str(np.round(np.std(ys),2))+" "+factorsAndUnits[1][1])
 	#lplot([xs],[ys],useLast=True)
 
 @wrapper
