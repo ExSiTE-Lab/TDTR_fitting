@@ -1,5 +1,5 @@
-wget https://raw.githubusercontent.com/ExSiTE-Lab/TDTR_fitting/refs/heads/main/TDTR_fitting.py
-wget https://raw.githubusercontent.com/ExSiTE-Lab/TDTR_fitting/refs/heads/main/gui.py
-wget https://raw.githubusercontent.com/ExSiTE-Lab/niceplot/refs/heads/main/niceplot.py
-wget https://raw.githubusercontent.com/ExSiTE-Lab/niceplot/refs/heads/main/nicecontour.py
+curl https://raw.githubusercontent.com/ExSiTE-Lab/TDTR_fitting/refs/heads/main/TDTR_fitting.py -o TDTR_fitting.py
+curl https://raw.githubusercontent.com/ExSiTE-Lab/TDTR_fitting/refs/heads/main/gui.py -o gui.py
+curl https://raw.githubusercontent.com/ExSiTE-Lab/niceplot/refs/heads/main/niceplot.py -o niceplot.py
+curl https://raw.githubusercontent.com/ExSiTE-Lab/niceplot/refs/heads/main/nicecontour.py -o nicecontour.py
 python3 gui.py
