@@ -269,7 +269,7 @@ fields={"rpr"      :{"alias":"probe r (μm)"   ,"setter":setRad  ,"getter":getRa
 	"perturbBy":{"alias":"pert. by (%)"  ,"setter":setGuiVar ,"getter":getGuiVar  ,
 		     "type":"entry","value":"5"              ,"where":"US3"},
 	"mode"     :{"alias":"experiment"    ,"setter":setVar    ,"getter":getVar     ,
-		     "type":"drop" ,"value":"TDTR;TDTR;SSTR;PWA;FDTR;FD-TDTR"      ,"where":"US"},
+		     "type":"drop" ,"value":"TDTR;TDTR;SSTR;PWA;FDTR;pFDTR"      ,"where":"US"},
 	"pumpShape":{"alias":"pu profile"    ,"setter":setVar    ,"getter":getVar     ,
 		     "type":"drop" ,"value": "gaussian;gaussian;gaussian_numerical;tophat;ring;ring_numerical;offset","where":"US3"},
 	"tshift"   :{"alias":"t shift (s)"   ,"setter":setVar    ,"getter":getVar     ,
@@ -870,7 +870,7 @@ def runContour(event):
 		return
 	fs=files ; solvefunc={"func":solve,"kwargs":{}}
 	if lastrun=="simult":
-		fs=[ss2f] ; solvefunc=solvefunc={"func":ss2,"kwargs":{"listOfTypes":ss2t}} #; setVar("ss2Types",ss2t)
+		fs=[ss2f] ; solvefunc=solvefunc={"func":ss2,"kwargs":{"listOfTypes":ss2t,"settables":ss2settables}} #; setVar("ss2Types",ss2t)
 	if getVar("mode")=="FD-TDTR":
 		fs=[fs]
 	for f in fs:
@@ -1164,7 +1164,7 @@ def simult1(event,rerun=False):
 def simult(event,rerun=False):						# [   run button    ] [ "file" label     ] [ "meas. type"  ] [ "globals" ]
 	global lastrun ; lastrun="simult"				# [ add file button ] [ file entry field ] [ type dropdown ] [ globals field ]
 	if rerun:							#  ...
-		r,e=ss2(ss2f,ss2t,plotting="save")			#   ...		add file button adds the text to the file entry field
+		r,e=ss2(ss2f,ss2t,plotting="save",settables=ss2settables)#   ...	add file button adds the text to the file entry field
 		#r,e=ss3(ss2f,ss2t,plotting="save")			#    ...	clicking "run" collects everything up and runs ss2
 		out(str((r,e)))
 		global lastSolution ; lastSolution=r
@@ -1213,7 +1213,7 @@ def simult(event,rerun=False):						# [   run button    ] [ "file" label     ] [
 				settables[glo].append(val)
 		# TODO if the user is clumsy and doesn't set a global in each, bad things happen? esp if you don't set it in the first one, the first file inherits the second files global value?
 		#r,e=ss2(files,types,plotting="save",settables=settables)
-		global ss2f,ss2t ; ss2f=files ; ss2t=types
+		global ss2f,ss2t,ss2settables ; ss2f=files ; ss2t=types ; ss2settables=settables
 		log("files:"+str(files)+","+str(types))
 		bu=event.widget
 		bu.configure(text="RUNNING") ; newWin.update()
