@@ -191,7 +191,7 @@ hybridFactors=[1] # TODO currently hybridFactors are used in the order: gaussian
 #@profile
 nonzeroAbsorption="gradient"
 def delTomega(omegas,gkomega="",radii="",integration="trapz"):
-	
+	conditionalPrint("delTomega","",pp=True)
 	global alpha
 	# NON-ZERO OPTICAL PENETRATION DEPTH: discretize into 10 locations to dump heat, with a weighted average for signal
 	if nonzeroAbsorption=="gradient" and alpha!=0: # instead of a conditionalPrint here, you can check progress via: biMatrix,Gkomega
@@ -199,17 +199,24 @@ def delTomega(omegas,gkomega="",radii="",integration="trapz"):
 		depths=np.linspace(0,2*alpha,21) ; expos=np.exp(-depths/alpha) ; alpha=0	# exponential intensity gradient
 		results=np.zeros((21,len(omegas)),dtype=complex) ; expos/=sum(expos)			
 		for i in range(21):								# loop depths...
+			conditionalPrint("delTomega","CYCLE: "+str(i))
 			depositAt=depths[i]							# ...set pump depths...
 			results[i,:]=delTomega(omegas,gkomega,radii,integration)*expos[i]	# re-call this function
 		depositAt=depositAt_old ; alpha=alpha_old					# restore parameters
-		conditionalPrint("delTomega",str(results)+" --> "+str(np.sum(results,axis=0))+", "+str(np.shape(results)))
+		#conditionalPrint("delTomega",str(results)+" --> "+str(np.sum(results,axis=0))+", "+str(np.shape(results)))
 		return np.sum(results,axis=0)							# weighted average
 	# CAHILL TRICK FOR NON-ZERO OPTICAL PENETRATION DEPTHS: 
 	if nonzeroAbsorption=="cahill" and alpha!=0:
+		conditionalPrint("delTomega","updating tp with bonus first layer")
 		global tp ; alpha_old=alpha ; tp_old=copy.deepcopy(tp)		# save off old parameters
-		tp=[ [ tp[0][0]*alpha*1e9 , tp[0][1] , 1e-9 , tp[0][3] ], 	# new 1st layer, 1nm thick, pen depth (in nm) = heat capacity scaling
+		tp=[ [ tp[0][0] , tp[0][1] , 1e-9 , tp[0][3] ],			# new 1st layer, 1nm thick...
 			[ {True:0,False:np.inf}[useTBR] ],			# zero TBR between extra 1st layer
-			[ tp[0][0] , tp[0][1] , tp[0][2]-alpha , tp[0][3] ]]+tp[1:] # subtract pen depth from now-2nd layer thickness (keep total C)
+			[ tp[0][0] , tp[0][1] , tp[0][2] , tp[0][3] ]]+tp[1:] 
+		tp[0][0]*=(alpha*1e9)						# pen depth (in nm) = heat capacity scaling
+		tp[0][1]*=(alpha*1e9)						# K_through is also scaled? probably doesn't matter....
+		tp[2][2]-=alpha							# subtract pen depth from now-2nd layer thickness (keep total C!)
+		if isNum(tp[0][3]):						# if K_inplane is set (not just "Kz" for isotropic), we should...
+			tp[0][3]*=(alpha*1e9)					# ... also scale K_in, to maintain transducer thermal spreading
 		alpha=0								# set alpha to zero before re-calling this function
 		popGlos()							# gkomega digests Kzs,etc globals, not tp, so re-execute popGlos
 		result=delTomega(omegas,gkomega,radii,integration)		# re-call this function
@@ -1257,18 +1264,25 @@ def calsForPhase(fileDirec,calmatDirec,materials=["Al2O3","SiO2","Quartz","Si"])
 # plot([np.arange(10)]*6,[xf1,xf2,xf3,yf1,yf2,yf3],markers=['rs','go','r.','ks','go','k.'])
 
 def readFDTR(filename,returnFull=False):
-	autos(filename)
-	data=np.loadtxt(filename,skiprows=2)
-
-	npts,ncols=np.shape(data)
-	if ncols==3: # files from TDTRfunc(save!=False)
-		fs,xs,ys=np.transpose(data)
-		dphi=np.zeros(len(fs))				# synthetic dataset has no pump phase to "correct" by! 
-	else:
-		fs,pux,puxs,puy,puys,prx,prxs,pry,prys,a1,a2=np.transpose(data)
-		phi=np.arctan2(pry,prx)-np.arctan2(puy,pux)	# for real data, we care about the *phase difference* between pump/probe
-		mag=np.sqrt(prx**2+pry**2) / np.sqrt(pux**2+puy**2) / a1	# for SSTR, we divide probe by pump and aux....
+	if filename[-4:]==".csv":
+		data=np.loadtxt(filename,skiprows=1,delimiter=",")
+		a1,x,x,a2,x,x,x,fs,x,x,x,phi,pphi,x,mag,pmag,x,x,x,x,prx,pux,x,pry,puy,x,x,x,x=data.T
+		#print(mag,np.sqrt(prx**2+pry**2))
+		phi-=pphi
 		xs=mag*np.cos(phi) ; ys=mag*np.sin(phi)
+	else:
+		autos(filename)
+		data=np.loadtxt(filename,skiprows=2)
+
+		npts,ncols=np.shape(data)
+		if ncols==3: # files from TDTRfunc(save!=False)
+			fs,xs,ys=np.transpose(data)
+			dphi=np.zeros(len(fs))				# synthetic dataset has no pump phase to "correct" by! 
+		else:
+			fs,pux,puxs,puy,puys,prx,prxs,pry,prys,a1,a2=np.transpose(data)
+			phi=np.arctan2(pry,prx)-np.arctan2(puy,pux)	# for real data, we care about the *phase difference* between pump/probe
+			mag=np.sqrt(prx**2+pry**2) / np.sqrt(pux**2+puy**2) / a1	# for SSTR, we divide probe by pump and aux....
+			xs=mag*np.cos(phi) ; ys=mag*np.sin(phi)
 	
 	xs=xs[fs>=minimum_fitting_frequency] ; ys=ys[fs>=minimum_fitting_frequency] ; fs=fs[fs>=minimum_fitting_frequency]
 	

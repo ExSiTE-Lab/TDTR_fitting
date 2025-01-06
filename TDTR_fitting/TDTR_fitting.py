@@ -30,7 +30,7 @@ rprobe=(10.0+10.0)/4.*1e-6
 rpump=(20.0+20.0)/4.*1e-6 
 fp=80e6 # pulse frequency, in Hz (note, this is NOT read from standard data files, but is unlikely to change)
 fm=8.4e6 # moduluation frequency, in Hz
-minimum_fitting_time=200e-12 ; minimum_fitting_frequency=1e3
+minimum_fitting_time=200e-12 ; minimum_fitting_frequency=1e1
 maximum_fitting_time=None #60e-12
 time_normalize="3000e-12"
 gamma=1 # power absorbed = P/gamma
@@ -45,7 +45,7 @@ fitting="R"
 # You may also set the upper and lower bounds for fitting variables here. We define them based on type, rather than dependant on guess values (guess/20 - guess*20 might not even be okay for K, but it is quite excessive for C, for example). beware: we'll crash if your guess is outside the bounds. 
 LBUB = { "C":(.1e6,10e6)    , "Kz":(.01,1500000)        , "Kr":(.01,1500000)           , "G":(1e3,5e9)  , "R":(1/750e6,1/5e6) , 
          "d":(5e-9,1)       , "rpump":(1e-6,30e-6)      , "rprobe":(1e-6,30e-6)         , "gamma":(0,1e12) , "tshift":(-.1,.1)   ,
-         "chopwidth":(0,25) , "yshiftPWA":(-1e-2,1e-2), "slopedPhaseOffset":(-2*3.14159,2*3.14159), "variablePhaseOffset":(0,0)    , "alpha":(0,1),
+         "chopwidth":(0,25) , "yshiftPWA":(-1,1), "slopedPhaseOffset":(-2*3.14159,2*3.14159), "variablePhaseOffset":(0,0)    , "variableMagnitudeScaling":(0,0)    , "alpha":(0,1),
          "expA":(-10000,10000)   , "expB":(-200,0)          , "expC":(0,10000) , "anisotropy":(0.00000001,10000000) , "dutyCycle":(0,100) }
 lbs={ k:LBUB[k][0] for k in LBUB.keys() }
 ubs={ k:LBUB[k][1] for k in LBUB.keys() }
@@ -102,7 +102,7 @@ ubs={ k:LBUB[k][1] for k in LBUB.keys() }
 # 	generateHeatmap > generate 2D list of fitted parameters > func(), record error() for each
 # 	measureContour1Axis > generate 1D list of single fitted parameter > solve(), record residual for each
 # sensitivity > perturb each param and then func() and subtract
-
+# WHY ARE THERE GLOBALS EVERYWHERE, AND WHY IS THIS NOT OBJECT-ORIENTED? the real answer is, i started writing it before i was very familiar with OO. There are enough "inputs" for any given function (e.g. the entire thermal properties matrix, all experimental parameters, etc), and full encapsulation of that seems messy. 
 
 #GENERAL STUFF
 import numpy as np
@@ -129,6 +129,7 @@ if os.name=='posix':
 # Consider a function for Ĝ(k,ω) that takes a single k and a single ω; this is quite slow. (and you can find this in v0.3). instead, accept lists of k values, and lists of ω values, and return a 2D array structured as Ĝ[nth k][nth ω]. refer to v0.5 if you want a verbose version of this code. 
 def Gkomega(ks="",omegas="",partial=False):
 	global Kzs,Krs,Cs,ds,Gs,Rs
+	conditionalPrint("Gkomega","running with tp: "+str(tp)+" --> Kzs: "+str(Kzs)+", Krs: "+str(Krs)+", Cs: "+str(Cs)+", ds: "+str(ds)+" Gs: "+str(Gs)+", Rs: "+str(Rs))
 	# WATCH OUT! if "omegas" is a list instead of a numpy array, ω[ω==0]=newval doesn't do what you think! it just sets the 0th element to newval. try it yourself. a=[1,2,0,4] ; a[a==0]=7 --> [7,2,0,4]. "a==0" is False, a[False] is 0th element
 	omegas=np.asarray(omegas) 
 	omegas[omegas==0]=1e-6
@@ -188,7 +189,48 @@ from scipy.special import jv,erf
 pumpShape="gaussian" ; probeShape="gaussian" ; xoff=10e-6
 hybridFactors=[1] # TODO currently hybridFactors are used in the order: gaussian,tophat,ring,offset. ideally we'd follow whatever order is in pumpShape (e.g. pumpShape="ring+tophat" would reverse the order)
 #@profile
+nonzeroAbsorption="gradient"
 def delTomega(omegas,gkomega="",radii="",integration="trapz"):
+	conditionalPrint("delTomega","",pp=True)
+	global alpha
+	# NON-ZERO OPTICAL PENETRATION DEPTH: discretize into 10 locations to dump heat, with a weighted average for signal
+	if nonzeroAbsorption=="gradient" and alpha!=0: # instead of a conditionalPrint here, you can check progress via: biMatrix,Gkomega
+		global depositAt ; depositAt_old=depositAt ; alpha_old=alpha			# save off old parameters
+		depths=np.linspace(0,2*alpha,21) ; expos=np.exp(-depths/alpha) ; alpha=0	# exponential intensity gradient
+		results=np.zeros((21,len(omegas)),dtype=complex) ; expos/=sum(expos)			
+		for i in range(21):								# loop depths...
+			conditionalPrint("delTomega","CYCLE: "+str(i))
+			depositAt=depths[i]							# ...set pump depths...
+			results[i,:]=delTomega(omegas,gkomega,radii,integration)*expos[i]	# re-call this function
+		depositAt=depositAt_old ; alpha=alpha_old					# restore parameters
+		#conditionalPrint("delTomega",str(results)+" --> "+str(np.sum(results,axis=0))+", "+str(np.shape(results)))
+		return np.sum(results,axis=0)							# weighted average
+	# CAHILL TRICK FOR NON-ZERO OPTICAL PENETRATION DEPTHS: 
+	if nonzeroAbsorption=="cahill" and alpha!=0:
+		conditionalPrint("delTomega","updating tp with bonus first layer")
+		global tp ; alpha_old=alpha ; tp_old=copy.deepcopy(tp)		# save off old parameters
+		tp=[ [ tp[0][0] , tp[0][1] , 1e-9 , tp[0][3] ],			# new 1st layer, 1nm thick...
+			[ {True:0,False:np.inf}[useTBR] ],			# zero TBR between extra 1st layer
+			[ tp[0][0] , tp[0][1] , tp[0][2] , tp[0][3] ]]+tp[1:] 
+		tp[0][0]*=(alpha*1e9)						# pen depth (in nm) = heat capacity scaling
+		tp[0][1]*=(alpha*1e9)						# K_through is also scaled? probably doesn't matter....
+		tp[2][2]-=alpha							# subtract pen depth from now-2nd layer thickness (keep total C!)
+		if isNum(tp[0][3]):						# if K_inplane is set (not just "Kz" for isotropic), we should...
+			tp[0][3]*=(alpha*1e9)					# ... also scale K_in, to maintain transducer thermal spreading
+		alpha=0								# set alpha to zero before re-calling this function
+		popGlos()							# gkomega digests Kzs,etc globals, not tp, so re-execute popGlos
+		result=delTomega(omegas,gkomega,radii,integration)		# re-call this function
+		tp=copy.deepcopy(tp_old) ; alpha=alpha_old			# restore parameters
+		return result
+	# Yang et al J. Appl. Phys. 119, 095107 (2016):
+	# Where Schmidt Eq 8 says: ΔT𝘴𝘶𝘳𝘧𝘢𝘤𝘦(ω)=A₁/2*π ∫ k*Ĝ(k,ω)*exp(-k²*(rᵣ²+rᵤ²)/8)*dk
+	# Yang Eq 20 says: H(ω) = A₁/2*π * 1/(1-exp(-d₁/δ₀)) ∫ k * Ĝ(k,ω) * 1/(1-q²δ₀²)) * exp(-k²*(rᵣ²+rᵤ²)/8) * dk where δ₀
+	#if nonzeroAbsorption=="yang" and alpha!=0:
+	#	ks=np.linspace(kmin,kmax,ksteps)
+	#	q=np.sqrt((Krs[0]*ks**2.+Cs[0]*1j*omegas)/Kzs[0]) #q²=(K𝘳*k²+C*i*ω)/K𝘻 #Schmidt eq 4
+	#	A1*=1/(1-np.exp(-ds[0]/....meh, i'm not restructuring my code when i've already validated the gradient method against Wang Rev. Sci. Instrum. 87, 094902 (2016) Fig 3
+	# Wang et al Rev. Sci. Instrum. 87, 094902 (2016), Eq 4 references pr(..z) = ∫...exp(-z/d)... dz, which is basically the same as my gradient method! 
+
 	ks=np.linspace(kmin,kmax,ksteps) # to integrate, we set up up a list of x values, pass them to f(x), and then integrate numerically by summing the area of each trapezoid. 2⁶+1=65, ExSiTE Lab matlab code uses 50 { [k,wk]=lgwt(50,0,10/sqrt(w0^2 + w1^2)); }
 	if len(gkomega)==0: # passing in Ĝ(k,ω) is how we hijack the same code for T𝘴𝘶𝘳𝘧𝘢𝘤𝘦 (Ĝ(k,ω)=-D/C) and ΔT𝘣𝘢𝘤𝘬𝘴𝘪𝘥𝘦 (use -A𝘴𝘶𝘣*D𝘧𝘶𝘭𝘭/C𝘧𝘶𝘭𝘭+B𝘴𝘶𝘣 instead)
 		if measureAt!=0 or depositAt!=0:
@@ -228,13 +270,16 @@ def delTomega(omegas,gkomega="",radii="",integration="trapz"):
 		if "ring" in pumpShape:
 			i=np.argmin(np.abs(rs-r1)) ; pu[ct,i]=1/(2*np.pi*r1)/(rs[i]-rs[i-1]) ; ct+=1 # ring heating source, "infinitely thin"
 		elif "offset" in pumpShape:
-			pu[ct,:]=np.exp(-1.*(rs-xoff)**2./(2.*r1**2.))
+			print("OFFSET PUMP,PROBE",r1,r2,xoff)
+			#pu[ct,:]=np.exp(-1.*(rs-xoff)**2./(2.*r1**2.)) ; ct+=1
+			pu[ct,:]=np.exp(-2*(rs-xoff)**2/(r1**2)) ; ct+=1
 		pu=[ p*hf for p,hf in zip(pu,hybridFactors) ] ; pu=np.sum(pu,axis=0)
 
 		dr=rs[1]-rs[0]
 		integ=np.sum(pu*rs)*dr*2*np.pi
 		#print("INTEGRAL PUMP:",integ) # V(r,θ)=∫ ∫ z(r,θ)*r dr dθ, 0 < r < ∞, 0 < θ < 2π
 		pu*=1/integ
+		#lplot([rs],[pu]) ; sys.exit()
 		Hpump=np.sum( pu*jv(0, np.outer(ks,rs))*rs , axis=1)*dr # [ nth k, nth r], flattened in terms of r	
 		# plot([rs],[pu],xlabel="radius (m)",ylabel="pump intensity (-)") ; return
 	# integrand of ΔT(ω) = A₁/2*π ∫ [ k*Ĝ(k,ω)*Hₚᵤ*Hₚᵣ ] dk, aka, Schmidt's H(ω)=A₁/2*π ∫ [ k*Ĝ(k,ω)*exp(-k²*(rᵣ²+rᵤ²)/8) ] dk.
@@ -666,7 +711,7 @@ def solve(fileToRead,plotting="show",refit=True):
 		#print("REFIT=False")
 		return r,e
 
-	solveFunc={"TDTR":solveTDTR,"SSTR":solveSSTR,"FDTR":solveFDTR,"PWA":solvePWA}[mode]
+	solveFunc={"TDTR":solveTDTR,"SSTR":solveSSTR,"FDTR":solveFDTR,"pFDTR":solveFDTR,"PWA":solvePWA}[mode]
 	#if mode=="TDTR" and type(fileToRead)==list: # TODO is this even necessary? we used to have it in perturbUncertainty(), but solveTDTR still has it...
 	#	solveFunc=solveSimultaneous
 	conditionalPrint("solve","calling "+str(solveFunc))
@@ -685,14 +730,14 @@ def solve(fileToRead,plotting="show",refit=True):
 	return r,e
 
 def func(xs,*parameterValues,store=False,addNoise=False): # x axis points (time delays for TDTR, pump powers for SSTR, and so on). and a list of parameter values corresponding to tofit. func(*listVariable) notation pops list values out. var=["cat","dog"], func(*var) allows func() to hear func("cat","dog"). not passing anything for paremeterValues simply generates the decay function with the thermal property matrix as-is.
-	f={"TDTR":TDTRfunc,"SSTR":SSTRfunc,"pSSTR":SSTRfunc,"FDTR":FDTRfunc,"PWA":PWAfunc,"FD-TDTR":TDTRfunc}[mode]
+	f={"TDTR":TDTRfunc,"SSTR":SSTRfunc,"pSSTR":SSTRfunc,"FDTR":FDTRfunc,"pFDTR":FDTRfunc,"PWA":PWAfunc,"FD-TDTR":TDTRfunc}[mode]
 	return f(xs,*parameterValues,store=store,addNoise=addNoise)
 lastRead="" ; lastData=[] # prevent pounding the disk if we're re-reading the same file (e.g. flat3DContour)
 def readFile(fileToRead,reread=False):
 	global lastRead,lastData
 	if not reread and fileToRead==lastRead:
 		return lastData
-	f={"TDTR":readTDTR,"SSTR":readSSTR,"FDTR":readTDTR,"PWA":readPWA,"FD-TDTR":readTDTR}[mode]
+	f={"TDTR":readTDTR,"SSTR":readSSTR,"FDTR":readFDTR,"pFDTR":readFDTR,"PWA":readPWA,"FD-TDTR":readTDTR}[mode]
 	lastRead=fileToRead ; lastData=f(fileToRead)
 	return lastData
 def fileAverager1(filesToRead,fileOut): # WARNING: IT IS THE USER'S RESPONSIBILITY TO ENSURE ALL FILES ARE THE SAME TYPE, COLLECTED UNDER THE SAME EXPERIMENTAL CONDITIONS (eg, frequencies and spot sizes)
@@ -954,6 +999,9 @@ def minimizee(fun,p0,bounds,method=None):
 	lsqout=minimize(wrapped,x0=tuple(p0),bounds=tuple(bnds),method=method) ; lsqout['x']/=scale
 	return lsqout
 
+# every solveNNNN function should do basically the following (and the following only)
+# readFile, guesses, buounds, curvefit, resultsPlotter. extra stuff (like phase correction) should be done within each of these function (e.g. in readFile)
+
 # HELP! cals too low, check pump/probe overlap. too high, check offsets. noisy, check allignment. 
 def solveTDTR(fileToRead,plotting="show",ts='',data='',skipSolved=False): # "plotting" options include: show, save, showsens, savesens, none
 	conditionalPrint("solveTDTR",fileToRead)
@@ -1015,30 +1063,38 @@ def TDTRfunc(ts,*parameterValues,store=False,addNoise=False,whackyFunc=None):
 		setTofitVals(parameterValues)
 	popGlos()
 
-	nonzeroAbsorption="gradient"
-	global alpha
+	# DECEMBER 2024 UPDATE: why do i do this in TDTRfunc? what about SSTR or other measurements? shouldn't this be inside delTomega? ALSO, doing it here really throws a wrench in the works for the hypotheticals / synthetic data stuff (ctrl+u doesn't work, because we don't have ts,xs,ys, we just have ratio or magnitude or whatever). 
+	#nonzeroAbsorption="cahill"
+	#global alpha
 	# NON-ZERO OPTICAL PENETRATION DEPTH: discretize into 10 locations to dump heat, with a weighted average for signal
-	if nonzeroAbsorption=="gradient" and alpha!=0:
-		global depositAt ; depositAt_old=depositAt ; alpha_old=alpha
-		conditionalPrint("TDTRfunc","alpha="+str(alpha)+", recursing")
-		depths=np.linspace(0,2*alpha,10) ; expos=np.exp(-depths/alpha) ; alpha=0
-		results=np.zeros((10,len(ts))) ; expos/=sum(expos)
-		#lplot([depths],[expos]) ; sys.exit()
-		for i in range(10):
-			depositAt=depths[i]
-			results[i,:]=TDTRfunc(ts)*expos[i]
-		depositAt=depositAt_old ; alpha=alpha_old
-		return np.sum(results,axis=0)
+	#if nonzeroAbsorption=="gradient" and alpha!=0:
+	#	global depositAt ; depositAt_old=depositAt ; alpha_old=alpha			# save off old parameters
+	#	conditionalPrint("TDTRfunc","alpha="+str(alpha)+", recursing")
+	#	depths=np.linspace(0,2*alpha,10) ; expos=np.exp(-depths/alpha) ; alpha=0	# exponential intensity gradient
+	#	results=np.zeros((10,len(ts))) ; expos/=sum(expos)
+	#	#lplot([depths],[expos]) ; sys.exit()
+	#	for i in range(10):								# loop depths...
+	#		depositAt=depths[i]							# ...set pump depths...
+	#		results[i,:]=TDTRfunc(ts)*expos[i]					# re-call this function
+	#	depositAt=depositAt_old ; alpha=alpha_old					# restore parameters
+	#	result=np.sum(results,axis=0)							# weighted average
 	# CAHILL TRICK FOR NON-ZERO OPTICAL PENETRATION DEPTHS: 
-	elif nonzeroAbsorption=="cahill" and alpha!=0:
-		global tp ; alpha_old=alpha ; tp_old=tp
-		conditionalPrint("TDTRfunc","alpha="+str(alpha)+", adding layer")
-		tp=[[tp[0][0],tp[0][1],tp[0][2],tp[0][3]],[{True:0,False:np.inf}[useTBR]]]+tp
-		tp[0][0]*=alpha*1e9 ; tp[0][2]=1e-9 ; alpha=0 
-		result=TDTRfunc(ts)
-		tp=tp_old ; alpha=alpha_old
-		return result
-	
+	#elif nonzeroAbsorption=="cahill" and alpha!=0:
+	#	global tp ; alpha_old=alpha ; tp_old=copy.deepcopy(tp)				# save off old parameters
+	#	conditionalPrint("TDTRfunc","alpha="+str(alpha)+", adding layer")
+	#	tp=[[tp[0][0],tp[0][1],tp[0][2],tp[0][3]],[{True:0,False:np.inf}[useTBR]]]+tp	# clone first layer
+	#	tp[0][2]=1e-9								# fake first layer, 1nm thickness
+	#	tp[0][0]*=alpha*1e9						# scale first layer heat capacity by opt pen depth (in nm)
+	#	tp[2][2]-=alpha					# remove fake first layer from old first layer???
+	#	alpha=0						# set alpha to zero before re-calling this function
+	#	result=TDTRfunc(ts)
+	#	tp=copy.deepcopy(tp_old) ; alpha=alpha_old			# restore parameters
+	#if alpha!=0 and store:
+	#	saveGen([ts,xs,ys],store)
+	#if alpha!=0:
+	#	return result
+
+
 	if nmax>1000:
 		warn("TDTRfunc","Warning: summing over "+str(nmax*2)+" sidebands. please check that your pulse frequency is correct, and consider a larger minimum fitting time for better performance.")
 
@@ -1101,47 +1157,42 @@ def saveGen(txy,fname,delim="\t"):
 #TODO: need to test FDTR solving (pulsed and CW) : If you are a user of FDTR, i would appreciate if you sent me some data files for testing. (see testing23 for examples). twp4fg@virginia.edu
 # Discussion: how does phase correction with FDTR work? we can monitor the pump signal, and use that as one phase-correction step (any drift in phase of the pump is thus captured), however there may still be some other systematic phase (e.g. what if there is a time lag between pump acquisition and probe acquisition). Maybe we can assume the systematic phase is linear with frequency (a constant time lag, vs a uniformly-varying period duration dependant on frequency, will produce a phase lag proportional to frequency). This can be accounted for as a correction applied to the data, or as a correction applied to the model, or both. There is also the issue of wrapping (a high phase lag is represented as a phase lead), and this wrapping will result in instability in fitting. To account for both, for example, we might arbitrarily set the phase of the highest-frequency datapoint to zero, then let the model do the same, or we might arbitrarily set the highest-frequency datapoint to pi/2 phase lag (and ditto for the model). These will give the same fits, BUT, different residual values (it's not a "scaling" of data, it's a "shifting" of data. dY=0.01 when Y=1 is 1% error, but dY=.01 (same dY, data and model are both just shifted) when Y=.1 is 10% error). instead, when fitting for phase, we effectively need to fit the data to the model (instead of model to data, as is the normal procedure).
 slopedPhaseOffset=0 # Attempts at a theory-based phase offset scheme: laser path / electronics / etc may all create a phase offset between the "true" probe response and the "measured" probe response (or you can think of it as time delay between two supposedly-simultaneous sinusoidal signals at a given frequency). for FDTR, it is common practice to fit for the phase offset (because there is no time-delay=0 crossing to use for automatic phase correction like with TDTR)
-variablePhaseOffset=0 # empirical phase offset: conceivably data may not follow slopedPhaseOffset, so instead, simply use a reference sample to generate a phase-vs-frequency offset dataset. fit for vphase on a known sample, then the point-by-point correction will be applied to all subsequent fits. NOTE: to avoid issues with noise, you may wish to use the fileAverager before calculating your variablePhaseOffset
+variablePhaseOffset=np.asarray([0]) # empirical phase offset: conceivably data may not follow slopedPhaseOffset, so instead, simply use a reference sample to generate a phase-vs-frequency offset dataset. fit for vphase on a known sample, then the point-by-point correction will be applied to all subsequent fits. NOTE: to avoid issues with noise, you may wish to use the fileAverager before calculating your variablePhaseOffset
+variableMagnitudeScaling=np.asarray([0])
 def solveFDTR(fileToRead,plotting="show"):
-	global mode,tofit,variablePhaseOffset ; mode="FDTR"
-	conditionalPrint("solveFDTR","importing file:"+fileToRead)
-	conditionalPrint("solveFDTR","phase offsets: slopedPhaseOffset: "+str(slopedPhaseOffset)+", variablePhaseOffset: "+str(variablePhaseOffset))
-
-	#global slopedPhaseOffset ; slopedPhaseOffset=0
-	phasefile=fileToRead.split("/")[:-1]
-	phasefile.append("phase.txt")
-	phasefile="/".join(phasefile)
-	if os.path.exists(phasefile):
-		vPO=open(phasefile).readlines()[0]
-		vPO=vPO.split(",")
-		variablePhaseOffset=np.asarray([ float(v) for v in vPO ])
-		conditionalPrint("solveFDTR","found phase.txt, reading in. VPO:"+str(variablePhaseOffset))
+	global tofit,variablePhaseOffset,variableMagnitudeScaling
 
 	#FILE READING
 	fs,phis=readFDTR(fileToRead) #; phis+=variablePhaseOffset
 
 	#FITTING
 	guesses=getTofitVals() ; bnds=lookupBounds() # guesses come from thermal property matrix, bounds come from ubs / lbs globals
-	#if "phase" in tofit:
-	#	variablePhaseOffset=FDTRfunc(fs)-phis
-	#	with open(phasefile,'w') as f:
-	#		f.write(",".join([str(v) for v in variablePhaseOffset]))
-	#	tofit=[]
-	#corrected=phis+variablePhaseOffset ; corrected[corrected>np.pi]-=2*np.pi ; corrected[corrected<-np.pi]+=2*np.pi
-	#plot([fs,fs,fs],[phis,variablePhaseOffset,corrected],xscale="log")
-	#phis=corrected
-	#phis+=variablePhaseOffset
-	#fs=fs[phis>-3] ; phis=phis[phis>-3]
-	#fs=fs[phis<3]  ; phis=phis[phis<3]
+
 	if tofit==["variablePhaseOffset"] or tofit==["phase"]:
 		conditionalPrint("solveFDTR","FITTING FOR variablePhaseOffset")
-		phi_m=FDTRfunc(fs) ; phis-=variablePhaseOffset # remove old offset
-		variablePhaseOffset=phi_m-phis
-		print(variablePhaseOffset) ; fs,phis=readFDTR(fileToRead)
+		phi_m=FDTRfunc(fs)
+		if doPhaseCorrect:			# this would mean readFDTR would've applied the old offset. so undo it
+			phis-=variablePhaseOffset 	# remove old offset
+		variablePhaseOffset=phi_m-phis		# dϕ(ω)=MODEL-RAW, so next time we load the data: CORRECTED=RAW+dϕ(ω)=MODEL
+		print(variablePhaseOffset)
 		tofit=[] ; solvedParams=[] ; sigmas=[]
 		fileDirec="/".join(fileToRead.split("/")[:-1])
 		with open(fileDirec+"/phase.txt",'w') as f:
 			f.write(",".join([ str(v) for v in variablePhaseOffset ]))
+		fs,phis=readFDTR(fileToRead)		# reload the data (which will test inheriting new variablePhaseOffset from file)
+
+	elif tofit==["variableMagnitudeScaling"] or tofit==["magnitude"]:
+		conditionalPrint("solveFDTR","FITTING FOR variableMagnitudeScaling")
+		phi_m=FDTRfunc(fs)
+		phis/=variableMagnitudeScaling		# readFDTR would've applied the old scaling factors, so undo it. 
+		variableMagnitudeScaling=phi_m/phis	# dM(ω)=MODEL/RAW, so next time we load the data: CORRECTED=RAW*dM(ω)=MODEL
+		print(variableMagnitudeScaling)
+		tofit=[] ; solvedParams=[] ; sigmas=[]
+		fileDirec="/".join(fileToRead.split("/")[:-1])
+		with open(fileDirec+"/magnitude.txt",'w') as f:
+			f.write(",".join([ str(v) for v in variableMagnitudeScaling ]))
+		fs,phis=readFDTR(fileToRead)		# reload the data (which will test inheriting new variableMagnitudeScaling from file)
+
 	elif tofit==["slopedPhaseOffset"] or tofit==["sphase"]: # if fitting for phase, since the offset is applied in readFDTR, we sort of do the fitting "backwards": func in curve_fit is readFDTR and the "data" is the model
 		conditionalPrint("solveFDTR","FITTING FOR slopedPhaseOffset")
 		phi_m=FDTRfunc(fs)
@@ -1195,69 +1246,128 @@ def calsForPhase(fileDirec,calmatDirec,materials=["Al2O3","SiO2","Quartz","Si"])
 	print(dphi)
 	f.close()
 
-def readFDTR(filename):
-	autos(filename)
-	data=np.loadtxt(filename,skiprows=2)
+# WAYS TO APPLY A PHASE SHIFT:
+#xfixed=xs*np.cos(dphi)-ys*np.sin(dphi) # Braun "The role of compositional..." Eq 3.68
+#yfixed=ys*np.cos(dphi)+xs*np.sin(dphi)
+#zfixed=(xs+1j*ys)*np.exp(1j*dphi) ; xfixed=zfixed.real ; yfixed=zfixed.imag # value*eⁱᶱ is the same as rotating by θ
+#phi=np.arctan2(ys,xs)+dphi ; mag=np.sqrt(xs**2+ys**2)	# or just calculate and rotate about the unit circle
+#xs=mag*np.cos(phi) ; ys=mag*np.sin(phi)
+# TRY IT YOURSELF: 
+# xs=np.random.random(size=10)
+# ys=np.random.random(size=10)
+# dphi=np.pi/2
+# xf1=xs*np.cos(dphi)-ys*np.sin(dphi)
+# yf1=ys*np.cos(dphi)+xs*np.sin(dphi)
+# zf2=(xs+1j*ys)*np.exp(1j*dphi) ; xf2=zf2.real ; yf2=zf2.imag
+# p3=np.arctan2(ys,xs)+dphi ; m3=np.sqrt(xs**2+ys**2)
+# xf3=m3*np.cos(p3) ; yf3=m3*np.sin(p3)
+# plot([np.arange(10)]*6,[xf1,xf2,xf3,yf1,yf2,yf3],markers=['rs','go','r.','ks','go','k.'])
 
-	npts,ncols=np.shape(data)
-	if ncols==3: # files from TDTRfunc(save!=False)
-		fs,xs,ys=np.transpose(data)
-		xs=xs[fs>=minimum_fitting_frequency] ; ys=ys[fs>=minimum_fitting_frequency] ; fs=fs[fs>=minimum_fitting_frequency]
-		Y = { "R":-xs/ys , "X":normalize(fs,xs) , "Y":normalize(fs,ys) , "M":normalize(fs,(xs**2.+ys**2.)**.5) , "P":np.arctan2(ys,xs)}[fitting]	
-		return fs,Y
+def readFDTR(filename,returnFull=False):
+	if filename[-4:]==".csv":
+		data=np.loadtxt(filename,skiprows=1,delimiter=",")
+		a1,x,x,a2,x,x,x,fs,x,x,x,phi,pphi,x,mag,pmag,x,x,x,x,prx,pux,x,pry,puy,x,x,x,x=data.T
+		#print(mag,np.sqrt(prx**2+pry**2))
+		phi-=pphi
+		xs=mag*np.cos(phi) ; ys=mag*np.sin(phi)
+	else:
+		autos(filename)
+		data=np.loadtxt(filename,skiprows=2)
 
-	fs,pux,puxs,puy,puys,prx,prxs,pry,prys,a1,a2=np.transpose(data)
-
-	fmin=1e3 ; fmax=.8e7
-
-	pux=pux[fs>=fmin] ; puxs=puxs[fs>=fmin] ; puy=puy[fs>=fmin] ; puys=puys[fs>=fmin]
-	prx=prx[fs>=fmin] ; prxs=prxs[fs>=fmin] ; pry=pry[fs>=fmin] ; prys=prys[fs>=fmin]
-	a1=a1[fs>=fmin] ; a2=a2[fs>=fmin] ; fs=fs[fs>=fmin]
+		npts,ncols=np.shape(data)
+		if ncols==3: # files from TDTRfunc(save!=False)
+			fs,xs,ys=np.transpose(data)
+			dphi=np.zeros(len(fs))				# synthetic dataset has no pump phase to "correct" by! 
+		else:
+			fs,pux,puxs,puy,puys,prx,prxs,pry,prys,a1,a2=np.transpose(data)
+			phi=np.arctan2(pry,prx)-np.arctan2(puy,pux)	# for real data, we care about the *phase difference* between pump/probe
+			mag=np.sqrt(prx**2+pry**2) / np.sqrt(pux**2+puy**2) / a1	# for SSTR, we divide probe by pump and aux....
+			xs=mag*np.cos(phi) ; ys=mag*np.sin(phi)
 	
-	pux=pux[fs<=fmax] ; puxs=puxs[fs<=fmax] ; puy=puy[fs<=fmax] ; puys=puys[fs<=fmax]
-	prx=prx[fs<=fmax] ; prxs=prxs[fs<=fmax] ; pry=pry[fs<=fmax] ; prys=prys[fs<=fmax]
-	a1=a1[fs<=fmax] ; a2=a2[fs<=fmax] ; fs=fs[fs<=fmax]
-	
-	dphi=-np.arctan2(puy,pux)+slopedPhaseOffset*fs/1e7+variablePhaseOffset # phase offset is the angle from each recorded pump datapoint
-#global variablePhaseOffset ; variablePhaseOffset=np.zeros(len(fs))
-	#pux , puy = pux*np.cos(dphi)-puy*np.sin(dphi) , puy*np.cos(dphi)+pux*np.sin(dphi)
-	#lplot([fs],[np.arctan2(puy,pux)])
-	#sys.exit()
-
-	#if not doPhaseCorrect:
-	#dphi=0
-	prx , pry = prx*np.cos(dphi)-pry*np.sin(dphi) , pry*np.cos(dphi)+prx*np.sin(dphi) # Braun "The role of compositional..." Eq 3.68
-	#yfixed=
-	
-	#lplot([fs],[dphi],"freq","dphi") ; sys.exit()
-	#fs,xs,ys=[],[],[]
-	#lines=open(fileToRead).readlines()
-	#for l in lines:
-	#	if not isNum(l[0]):
-	#		continue
-	#	l=l.split("\t")
-	#	f,x,y=[float(v) for v in l[:3]]
-	#	fs.append(f) ; xs.append(x) ; ys.append(y)
-	#fs=np.asarray(fs) ; xs=np.asarray(xs) ; ys=np.asarray(ys)
-	#prx,pry=FDTRphase(fs,prx,pry)
-
-	xs=prx ; ys=pry
-	#xs=xfixed ; ys=yfixed
-
 	xs=xs[fs>=minimum_fitting_frequency] ; ys=ys[fs>=minimum_fitting_frequency] ; fs=fs[fs>=minimum_fitting_frequency]
+	
+	if doPhaseCorrect:
+		global variablePhaseOffset
+		# look for a dϕ(ω) file:
+		phasefile=filename.split("/")[:-1]
+		phasefile.append("phase.txt")
+		phasefile="/".join(phasefile)
+		if os.path.exists(phasefile):
+			variablePhaseOffset=np.loadtxt(phasefile,delimiter=",")
+			conditionalPrint("readFDTR","found phase.txt, reading in. VPO:"+str(variablePhaseOffset))
+		if len(variablePhaseOffset) != len(fs):
+			conditionalPrint("readFDTR","WARNING: length of variablePhaseOffset does not match data. setting to zero")
+			variablePhaseOffset=np.zeros(len(fs))
+		conditionalPrint("readFDTR","applying variable phase offset "+str(variablePhaseOffset)+" and sloped phase offset "+str(slopedPhaseOffset))
+		dphi=slopedPhaseOffset*fs/1e7+variablePhaseOffset # phase offset is the angle from each recorded pump datapoint
+		phi=np.arctan2(ys,xs)+dphi ; mag=np.sqrt(xs**2+ys**2)
+		xs=mag*np.cos(phi) ; ys=mag*np.sin(phi)
+
+	global variableMagnitudeScaling
+	# look for what is effectively a dγ(ω) file:
+	magfile=filename.split("/")[:-1]
+	magfile.append("magnitude.txt")
+	magfile="/".join(magfile)
+	if os.path.exists(magfile):
+		variableMagnitudeScaling=np.loadtxt(magfile,delimiter=",")
+		conditionalPrint("readFDTR","found magnitude.txt, reading in. VMS:"+str(variableMagnitudeScaling))
+	if len(variableMagnitudeScaling) != len(fs):
+		conditionalPrint("readFDTR","WARNING: length of variableMagnitudeScaling does not match data. setting to one")
+		variableMagnitudeScaling=np.ones(len(fs))
+		conditionalPrint("readFDTR","applying variable magnitude scaling "+str(variableMagnitudeScaling))
+	xs*=variableMagnitudeScaling ; ys*=variableMagnitudeScaling
+	# BUT WAIT! DOES NORMALIZE() UNDO THIS? it may. bypass this by setting time_normalize to "" or -1
+
+	if returnFull:
+		return fs,xs,ys
 	Y = { "R":-xs/ys , "X":normalize(fs,xs) , "Y":normalize(fs,ys) , "M":normalize(fs,(xs**2.+ys**2.)**.5) , "P":np.arctan2(ys,xs)}[fitting]	
-	#if fitting=="P":
-	#	Y+=variablePhaseOffset
 	return fs,Y
 
-def FDTRfunc(fs,*parameterValues,store=False,addNoise=False):
+fdtrDelay=5000e-12
+# HOW DO WE HANDLE PULSED VS CW FDTR? if mode="pFDTR", then FDTRfunc handles it in a manner similar to pSSTR
+def FDTRfunc(fs,*parameterValues,store=False,addNoise=False,whackyFunc=None,returnFull=False):
 	# Step 1: set passed parameters, infer mofulation frequency, and so on	
 	if len(parameterValues)==len(tofit):
 		setTofitVals(parameterValues)
 	popGlos()
 	conditionalPrint("FDTRfunc","using parameters:",pp=True)
-	omegas=2*np.pi*fs
-	Zs=delTomega(omegas)
+
+	if "p" in mode:
+		conditionalPrint("FDTRfunc","(pulsed)")
+		global fm,minimum_fitting_time
+		old_minimum_fitting_time=minimum_fitting_time
+		minimum_fitting_time=fdtrDelay ; ts=np.asarray([fdtrDelay])
+		popGlos()
+
+		Zs=[]
+		# METHOD 1, CALL TDTRfunc
+		#for f in fs:
+		#	conditionalPrint("FDTRfunc","calculating frequency: "+str(f))
+		#	fm=f
+		#	Zs.append( TDTRfunc(ts,*parameterValues)[0] )
+		#return Zs
+		# METHOD 2, DO IT OURSELVES
+		#return np.asarray(Zs)
+		for f in fs:
+			conditionalPrint("FDTRfunc","calculating frequency: "+str(f))
+			ns=np.arange(nmin,nmax+1)			# used for summing over many frequencies
+			omegas=2*np.pi*f+ns*omegaP 			# [ ωₙ ] , 1D list of ω=ωₘ+n*ωₚ values to pass into ΔT(ω). 
+			delTplus=delTomega(omegas) ; ts=np.asarray([fdtrDelay])
+			#conditionalPrint("TDTRfunc","using parameters:",pp=True)
+			convergeAccelerator=np.exp(-pi*ns**2./nmax**2.)	# [ ωₙ ], each n represents a frequency, Cahill eq 20+, exp(-πf²/fₘₐₓ²)
+			#Z(t𝘥)= Σ ΔT(ωₘ+n*ωₚ)*exp(i*n*ωₚ*t𝘥) #from -∞ to ∞, Jiang eq 2.21/2.22 (modified) / Schmidt eq 2. 
+			sumbits=delTplus[None,:]*np.exp(1j*omegaP*np.outer(ts,ns))[:,:]*convergeAccelerator[None,:] # [ t, ωₙ ]
+			z=np.sum(sumbits,axis=1) # [ t ], sum over all ωₙ 
+			#Note that while Jiang states Vᵢₙ(t𝘥)=½Σ(ΔT(ωₘ+n*ωₚ)+ΔT(-ωₘ+n*ωₚ))*exp(i*n*ωₚ*t𝘥) and Vₒᵤₜ(t𝘥)=-i*½Σ(ΔT(ωₘ+n*ωₚ)-ΔT(-ωₘ+n*ωₚ))*exp(i*n*ωₚ*t𝘥), simply taking the real and imaginary parts of ΣΔT(ωₘ+n*ωₚ)*exp(i*n*ωₚ*t𝘥) yields the same result. 
+			#Vᵢₙ(t𝘥)  = Re(Z(ω)) , Vₒᵤₜ(t𝘥) = Im(Z(ω))							#Jiang eq 2.21/2.22 (modified) 
+			#xs=z.real ; ys=z.imag
+			Zs.append(z[0])
+		Zs=np.asarray(Zs) ; print("pulsed Zs",np.shape(Zs))
+	else:
+		conditionalPrint("FDTRfunc","(CW)")
+		omegas=2*np.pi*fs
+		Zs=delTomega(omegas)
+
 	xs=Zs.real ; ys=Zs.imag
 
 	#dphi=-slopedPhaseOffset*fs # phase offset is the angle from each recorded pump datapoint
@@ -1265,8 +1375,12 @@ def FDTRfunc(fs,*parameterValues,store=False,addNoise=False):
 
 	if addNoise: 
 		xs*=noise(fs,addNoise)
+	if whackyFunc is not None:
+		fs,xs,ys=whackyFunc(fs,xs,ys)
 	if store:
 		saveGen([fs,xs,ys],store)
+	if returnFull:
+		return xs,ys
 	Y = { "R":-xs/ys , "X":normalize(fs,xs) , "Y":normalize(fs,ys) , "M":normalize(fs,(xs**2.+ys**2.)**.5) , "P":np.arctan2(ys,xs)}[fitting]
 	return Y#-variablePhaseOffset
 
@@ -1301,7 +1415,7 @@ def PWAfunc(ts,*parameterValues,store=False,addNoise=False):
 	ts_fine=np.linspace(0,p,int(sumNPWA),endpoint=False) ; dt=ts_fine[1]-ts_fine[0] # using a higher density of time points sums over more freqs
 	args=[ts_fine,fm]
 	conditionalPrint("PWAfunc","generating pump waveform")
-	if waveformPWA=="square-gauss":
+	if waveformPWA=="square-gauss" or waveformPWA=="gauss":
 		args.append(chopwidth)
 	H=pumpWaveform(*args)
 	#plot([ts_fine],[H]) ; sys.exit()
@@ -1335,15 +1449,22 @@ def PWAfunc(ts,*parameterValues,store=False,addNoise=False):
 	# STEP 5 ALT: above seems to fail for unknown reasons, with arbitrary waveform 
 	
 	# NORMALIZATION OF THE FUNCTION: calculate zt for two points, 1/4 and 3/4th period. scale and shift to 1 and 0 respectively
-	if normPWA:
+	if normPWA and "gamma" in tofit:
+		z-=np.mean(z)
+	elif normPWA:
 		#z/=max(z)
 		mint,maxt,lt=timeNormPWA.split(",")
-		tmn=p*float(mint)/100 ; tmx=p*float(maxt)/100		# times we grab for normalization (which points on the curve become 0, 1)
-		Tmn=zt(tmn) ; Tmx=zt(tmx)
+		tmn=1/fm*float(mint)/100 ; tmx=1/fm*float(maxt)/100	# times we grab for normalization (which points on the curve become 0, 1)
+		Tmn=zt(tmn+tshift) ; Tmx=zt(tmx+tshift)
 		Tmn,Tmx=min(Tmn,Tmx),max(Tmn,Tmx) 			# triangle), so let's not flip the data.
+		#p1,p2,pw=[ float(v)/100 for v in timeNormPWA.split(",") ]
+		#nmask=np.zeros(len(z)) ; nmask[ts>=1/fm*(p1-pw/2)]=1 ; nmask[ts>1/fm*(p1+pw/2)]=0
+		#Tmn=np.mean(zt[nmask==1])
+		#nmask=np.zeros(len(z)) ; nmask[ts>=1/fm*(p2-pw/2)]=1 ; nmask[ts>1/fm*(p2+pw/2)]=0
+		#Tmx=np.mean(zt[nmask==1])
 		z-=Tmn							# shift and scale, min --> 0
 		z/=(Tmx-Tmn)						# max --> 1
-
+		#print("PWAfunc, normPWA","t1,t2",tmn,tmx,"Tmn,Tmx",Tmn,Tmx)
 		
 
 		#tmxmn=np.asarray([p*float(mint)/100,p*float(maxt)/100])
@@ -1351,8 +1472,8 @@ def PWAfunc(ts,*parameterValues,store=False,addNoise=False):
 		#z-=ztmxmn[1] ; z/=(ztmxmn[0]-ztmxmn[1]) # shift/scale, data between 0 and 1
 		#z*=(onefourth-threefourths) ; z+=threefourths # shift/scale data between N3 and N1
 		#t,z=normalizePWA(ts,z)
-	if centerY:
-		z-=np.mean(z)
+	#if centerY:
+	#	z-=np.mean(z)
 
 	if addNoise: 
 		z*=noise(ts,addNoise)
@@ -1364,6 +1485,7 @@ def PWAfunc(ts,*parameterValues,store=False,addNoise=False):
 
 waveformReference="/media/Alexandria/U Virginia/Research/Various Code/runTR/20220505_washer_monitorPu_162628_PWA.txt"
 def pumpWaveform(*args):
+	conditionalPrint("pumpWaveform","args: "+str(args))
 	def square(ts,f):
 		ys=np.zeros(len(ts))#-1
 		p=1/f
@@ -1375,18 +1497,35 @@ def pumpWaveform(*args):
 		for n in range(1,N,2):
 			ys+=4/np.pi*1/n*np.sin(n*np.pi*2*ts/p) # f(x)=4/π Σ 1/n sin(nπx/L) https://mathworld.wolfram.com/FourierSeriesSquareWave.html
 		return ys
-	def gaussEdgeSquare(ts,f,p,duty=dutyCycle):
-		if p==0:
+	# RISE/FALL TIME: passing a beam through a chopper does not yield an instantaneous rise! in the same way a knife-edge measurement measures
+	# a spot size (by masking a portion of the beam and then monitoring the intensity) the rise time corrosponds to the beam's diameter passing 
+	# through the chopper. If a gaussian beam has a diameter 10% of the window+blade size, then the rise/fall time will be 10% of the cycle time.
+	# ASYMMETRY: if the beam is asymmetric passing through the chopper (e.g. coma aberation), the rise/fall times will be asymmetric as well. 
+	# characterizing these is critical for accurate PWA measurements!
+	# CONSTRUCTION: construct a gaussian template, then take it's integral. positive gaussian centered around initial rise, negative for the fall 
+	# centered at [duty] (e.g. 50% of cycle), and another positive to catch the leading tail of the next rise. see drawing below. 
+	def gaussEdgeSquare(ts,f,chop,duty=dutyCycle):	# "chop" can be a single
+		if isinstance(chop,(int,float)):	# value, or a list of lemgth	#          .-.                        ____ 1 
+			chop=[chop,chop,chop,chop]	# 2 or 4. if single value,	#         ' | '                     .'
+		if len(chop)==1:			# we use symmetric gaussians.	#       .'  |  '.       -->        |
+			c=chop[0] ; chop=[c,c,c,c]	# if 2 values passed, then	# ___.-'    | w   '-._____   0 ___.'
+		if len(chop)==2:			# these are leading/trailing	
+			c1,c2=chop ; chop=[c1,c2,c1,c2]	# rates. if 4 are passed, rise-lead/rise-tail/fall-lead/fall-tail may be different
+		if np.asarray(chop).all()==0:
 			return square(ts,f)
-		w=1/f*p/100						# gaussian template, and its integral
-		derivative=np.zeros(len(ts))				#          .-.                        ____ 1
-		derivative+=Gaussian(ts,1,0,w)				#         ' | '                     .'
-		derivative-=Gaussian(ts,1,1/f*duty/100,w)		#       .'  |  '.       -->        |
-		derivative+=Gaussian(ts,1,1/f,w)			# ___.-'    | w   '-._____   0 ___.'
-		# positive gaussian centered around "rise", negative gaussian centered around "fall"
-		#plot([ts],[derivative])
+		w=[ 1/f*p/100 for p in chop ]
+		xduty=1/f*duty/100
+		G1=Gaussian(ts,1,0,w[1])					# G1, rise-tail (centered at t=0)
+		G2=Gaussian(ts[ts<=xduty],1,xduty,w[2])				# G2, fall-lead (centered at cycle duration * duty)
+		G3=Gaussian(ts[ts>xduty],1,xduty,w[3])				# G3, fall-tail
+		G4=Gaussian(ts,1,1/f,w[0])					# G0, rise-lead (centered at t=cycleduration)
+		G14=G1+G4 ; G23=np.zeros(len(ts)) ; G23[ts<=xduty]+=G2 ; G23[ts>xduty]+=G3 # combine rises/falls (each a continuous skewed gaussian)
+		G14/=np.sum(G14) ; G23/=np.sum(G23)				# normalize each to 1
+		derivative=G14-G23						# each one is normalized by integral, so our total sum is zero
+		#lplot([ts],[derivative]) ; sys.exit()
 		ys=np.cumsum(derivative)
 		ys-=min(ys) ; ys/=max(ys)
+		#lplot([ts],[ys]) ; sys.exit()
 		return ys
 	def triangle(ts,f,slantiness=50):
 		p=1/f
@@ -1437,7 +1576,7 @@ def pumpWaveform(*args):
 
 		return Ts
 
-	f={ "square":square , "square-gauss":gaussEdgeSquare , "dirac":dirac , "dirac2":dirac2 , "dirac3":dirac3 , "triangle":triangle , "sine":sine , "arbitrary":arbitrary }[waveformPWA]
+	f={ "square":square , "square-gauss":gaussEdgeSquare , "gauss":gaussEdgeSquare , "dirac":dirac , "dirac2":dirac2 , "dirac3":dirac3 , "triangle":triangle , "sine":sine , "arbitrary":arbitrary }[waveformPWA]
 
 	H=f(*args)
 	H/=np.trapz(H,args[0])*args[1] # area under, normalized by period (2Hz just has 2 sine waves per second, area under each should then be half)
@@ -1525,7 +1664,9 @@ def normalizePWA(ts,Ts):
 	iz=np.argmin(np.absolute(ts)) ; ts[:iz]+=tm	# find index of new zero, toss negatives to around to the right
 	Ts=np.roll(Ts,-iz) ; ts=np.roll(ts,-iz)		# "reorder" datapoints too: tossed values to to the end of the dataset
 	# NORMALIZATION OF THE DATA: the mean around 1/4 and 3/4th period. scale and shift to 1 and 0 respectively
-	if normPWA:
+	if normPWA and "gamma" in tofit:
+		Ts-=np.mean(Ts)
+	elif normPWA:
 		percents=np.linspace(0,100,len(ts))
 		mint,maxt,lt=[ float(v) for v in timeNormPWA.split(",")	] # eg "25,75,10"  says use data between 20-30% cycle for max, and 70-80% as min
 		mask1=np.ones(len(ts)) ; mask1[percents<mint-lt/2]=0 ; mask1[percents>mint+lt/2]=0
@@ -1536,8 +1677,8 @@ def normalizePWA(ts,Ts):
 		Ts/=(Tmx-Tmn)						# max --> 1
 		#Ts*=(onefourth-threefourths) ; Ts+=threefourths		# shift/scale data between N3 and N1
 		#plot([ts,ts[mask1==1],ts[mask2==1]],[Ts,Ts[mask1==1],Ts[mask2==1]],markers=["ko","ro","bo"]) ; sys.exit()
-	if centerY:
-		Ts-=np.mean(Ts)
+	#if centerY:
+	#	Ts-=np.mean(Ts)
 	Ts+=yshiftPWA
 	#if centerY:
 	#	Ts-=np.mean(Ts)
@@ -1585,6 +1726,16 @@ def solvePWA(fileToRead,plotting="show",fileToSubtract=""):
 		minimask[percent<float(mn)]=0 ; minimask[percent>float(mx)]=100 # overwrite the old mask (eg, if pairs out of order). so create
 		mask[minimask==1]=1	# a temporary mask for each pair ("1s, unless outside the bounds given"), then apply that to main mask
 
+	bonusCurves=[]
+	if 0 in mask:
+		bonusCurves.append( [ts[mask==1],Ts[mask==1],"fitted","g.",1] )
+	if normPWA and "gamma" not in tofit:
+		percents=np.linspace(0,100,len(ts))
+		mint,maxt,lt=[ float(v) for v in timeNormPWA.split(",")	] # eg "25,75,10"  says use data between 20-30% cycle for max, and 70-80% as min
+		mask1=np.ones(len(ts)) ; mask1[percents<mint-lt/2]=0 ; mask1[percents>mint+lt/2]=0
+		mask2=np.ones(len(ts)) ; mask2[percents<maxt-lt/2]=0 ; mask2[percents>maxt+lt/2]=0
+		bonusCurves.append([ ts[mask1==1],Ts[mask1==1],"norm",'b.',2])
+		bonusCurves.append([ ts[mask2==1],Ts[mask2==1],"norm",'b.',2])
 	# AND SOLVE
 	guesses=getTofitVals() ; bnds=lookupBounds() # guesses come from thermal property matrix, bounds come from ubs / lbs globals
 	
@@ -1595,17 +1746,19 @@ def solvePWA(fileToRead,plotting="show",fileToSubtract=""):
 		#sigmas=np.sqrt(np.diag(parm_cov))
 		# NEW, use timeMaskPWA (eg "0:10,50:60") as percentage bounds, create a mask, and use that to let dzTrimming() compare only a subset of the data to a subset of the function
 		lsqout=least_squares(dzTrimming, tuple(guesses), bounds=tuple(bnds), args=(ts,Ts,mask))
-		if 0 in mask: # resultsPlotter just plots data, and output of func(), so we pass trimmed too, xs,ys,datalabel,marker,index (in stack)
-			bonusCurves=[[ts[mask==1],Ts[mask==1],"fitted","go",1]] 
-		else:
-			bonusCurves=''
+		#if 0 in mask: # resultsPlotter just plots data, and output of func(), so we pass trimmed too, xs,ys,datalabel,marker,index (in stack)
+		#	bonusCurves=[[ts[mask==1],Ts[mask==1],"fitted","go",1]] 
+		#else:
+		#	bonusCurves=''
 		solvedParams=lsqout['x'] ; sigmas=[0]
 	else:
-		solvedParams=[] ; sigmas=[0] ; bonusCurves=''
-	if len(mask)==len(ts):
+		solvedParams=[] ; sigmas=[0] #; bonusCurves=''
+	#if len(mask[mask==1])==len(ts):
+	if len(bonusCurves)==0:
 		residual=resultsPlotter(fileToRead,ts,Ts,solvedParams,plotting)#,bonusCurves=bonusCurves,mask=mask)
 	else:
-		residual=resultsPlotter(fileToRead,ts,Ts,solvedParams,plotting,bonusCurves=bonusCurves,mask=mask)
+		#print("LEN BONUS CURVES > 0",bonusCurves)
+		residual=resultsPlotter(fileToRead,ts,Ts,solvedParams,plotting,bonusCurves=bonusCurves)#,mask=mask)
 
 	return solvedParams,[residual,sigmas]
 
@@ -1638,7 +1791,6 @@ def SSTRfunc(Ps,*parameterValues,store=False,addNoise=False):
 		slope=z/A1
 	else:
 		conditionalPrint("SSTRfunc","(CW)")
-
 	Zs=Ps/gamma*slope
 	#for P in Ps:
 	#	A1=P/gamma		# BUG WITH THIS STRATEGY: delTomega > Gkomega works, but for non-zero depths,delTomega > biMatrix > popGlos > updates A1
@@ -1699,9 +1851,9 @@ def resultsPlotter(fileToRead,xs,data,solvedParams,plotting,bonusCurves='',mask=
 			SP=[ p if i>0 else p*(1+sign*plusMinus/100) for i,p in enumerate(solvedParams) ]
 			ys=func(xs,*SP)
 			Xs.append(xs) ; Ys.append(ys) ; dlbs.append("") ; mkrs.append("k:")
-	xlabel={"TDTR":"Time (s)","FDTR":"Frequency (Hz)","SSTR":"Pump power (mW)","pSSTR":"Pump power (mW)","PWA":"Time (s)"}[mode]
+	xlabel={"TDTR":"Time (s)","FDTR":"Frequency (Hz)","pFDTR":"Frequency (Hz)","SSTR":"Pump power (mW)","pSSTR":"Pump power (mW)","PWA":"Time (s)"}[mode]
 	TDTRylabel={"R":"Ratio (-X/Y)","M":"Mag (V)","X":"X (V)","Y":"Y (V)","P":"Phase (rad)"}[fitting]
-	ylabel={"TDTR":TDTRylabel,"FDTR":TDTRylabel,"SSTR":"Probe response (mW)","pSSTR":"Probe response (mW)","PWA":"Temperature (K)"}[mode]
+	ylabel={"TDTR":TDTRylabel,"FDTR":TDTRylabel,"pFDTR":TDTRylabel,"SSTR":"Probe response (mW)","pSSTR":"Probe response (mW)","PWA":"Temperature (K)"}[mode]
 	#print(traceback.format_stack())
 	title=fileToRead.split("/")[-1]+",R^2 = "+str(np.round(residuals*100,2))+"%" ; filename=figFile(fileToRead,plotting)
 
@@ -1709,17 +1861,18 @@ def resultsPlotter(fileToRead,xs,data,solvedParams,plotting,bonusCurves='',mask=
 	useLast = True in [ "gui" in e for e in stack ] # if this was called by the gui.py code, then use the previous matplotlib object to plot
 
 	#print("TDTR_fitting > resultsPlotter > useLast",useLast)
-	#for curve in bonusCurves:
-	#	xs,ys,dlb,mkr=curve[:4]
-	#	if len(curve)>4:
-	#		i=curve[4]
-	#		Xs.insert(i,xs) ; Ys.insert(i,ys) ; dlbs.insert(i,dlb) ; mkrs.insert(i,mkr)
-	#	else:
-	#		Xs.append(xs) ; Ys.append(ys) ; dlbs.append(dlb) ; mkrs.append(mkr)
-	scx={True:"log",False:"linear"}[mode=="FDTR"]
+	for curve in bonusCurves:
+		xs,ys,dlb,mkr=curve[:4]
+		if len(curve)>4:
+			i=curve[4]
+			Xs.insert(i,xs) ; Ys.insert(i,ys) ; dlbs.insert(i,dlb) ; mkrs.insert(i,mkr)
+		else:
+			Xs.append(xs) ; Ys.append(ys) ; dlbs.append(dlb) ; mkrs.append(mkr)
+	scx={True:"log",False:"linear"}["FDTR" in mode]
 	if len(mask)>0:
 		Xs.insert(1,xs[mask==1]) ; Ys.insert(1,data[mask==1]) ; dlbs.insert(1,"masked") ; mkrs.insert(1,"go")
-	lplot(Xs, Ys, xlabel, ylabel, title=title, filename=filename, labels=dlbs, markers=mkrs, useLast=useLast, xscale=scx)
+	print(dlbs,mkrs)
+	lplot(Xs, Ys, xlabel, ylabel, title=title, filename=filename, labels=dlbs, markers=mkrs, useLast=useLast, xscale=scx) # ,ylim=[-.1,0.8])
 	return residuals
 
 def figFile(fileToRead,plotting,subfolder="pics"):
@@ -2077,7 +2230,7 @@ def calsForSpots(fileDirec,calmatDirec,materials=["Al2O3","SiO2","Quartz","Si"],
 		conditionalPrint("calsForSpots","mat: "+mat+", matfile: "+matfile)
 		importMatrix(matfile)							# read in the matrix file
 		tpstring="tp="+str(getVar("tp"))+"\n" 					# "tp=[[C1,Kz1,d1,..],[...]...]"
-		for i in range(len(files)):							# for each datafile, we'll add a line to magicMods
+		for i in range(len(files)):						# for each datafile, we'll add a line to magicMods
 			f.write(tpstring)
 	f.close()
 
@@ -2596,6 +2749,7 @@ def importMatrix(filename,overrides=''):
 			return [ float(v) for v in l.split(": ")[-1].replace("[","").replace("]","").split(",") ]
 			
 		for l in lines:
+			#print("importMatrix",l)
 			if "Cs:" in l:
 				Cs=parse(l)
 			elif "Kzs:" in l:
@@ -2608,6 +2762,7 @@ def importMatrix(filename,overrides=''):
 				Gs=parse(l)
 		for i in range(len(Cs)):
 			C,Kz,d,Kr=Cs[i],Kzs[i],ds[i],Krs[i]
+			#print("C,Kz,d,Kr",C,Kz,d,Kr)
 			tp.append([C,Kz,d,Kr])
 			if i!=len(Gs):
 				G=Gs[i] ; R=1/G
@@ -2684,6 +2839,7 @@ def normalize(ts,values,constantNorm=False,auxes=1): #normalize based on the poi
 	#print("postshift",values)
 	#return valuess
 	if time_normalize=="" or time_normalize==-1 or time_normalize=="-1": #user is allowed to kill normalization
+		conditionalPrint("normalize","time_normalize set to \""+str(time_normalize)+"\", skipping normalization")
 		return values
 	if time_normalize=="aux":
 		values/=auxes ; return values
@@ -2785,7 +2941,7 @@ def isTPparam(paramName): # detect params that edit "tp" global, e.g. "d1", "Kz2
 # TODO I think we have found some sanity on setVar vs setParam and getVar vs getParam: setParam does it all now, and setVar is just a wrapper. we could get rid of it, but we'll keep it around in case old code stull uses it. TODO NEEDS SUPER MEGA THOROUGH TESTING THOUGH
 # (historically, setParam was meant for internal-use only, for setting things that might be set during fitting, e.g. "Kz2" which would update the "tp" thermal properties global. setVar was meant for external-use only, for setting global variables which would be easily-enough set internally via "global {gloName}" etc. And it was up to the user to keep track of which things are params vs glos. in reality though, it was common practice externally to, for example, "importMatrix(matfile); setParam('d1',d1)" to customize the thermal properties matrix that was imported. conversely, it was common practice internally to, for example "setVar(varname)" to take advantage of the indirection (where we have the global's name as a string). 
 paramAliases={"rpu":"rpump", "rpr":"rprobe", "fm":"fm", "fp":"fp", "da":"depositAt", "ma":"measureAt", 
-"sphase":"slopedPhaseOffset","phase":"variablePhaseOffset"}
+"sphase":"slopedPhaseOffset","phase":"variablePhaseOffset","magnitude":"variableMagnitudeScaling"}
 def setParam(paramName,value,warning=True): # setParam: during fitting, we update things (by name), expect the relevant globals to be updated, and then the model is regenerated (e.g. TDTRfunc generating the TDTR curve), iteratively, until a good fit is achieved. This should handle thermal properties by name (e.g. "Kz2" should update the thermal property matrix ("tp" global) 3rd row 2nd column. "rpu" on the other hand will update the "rpump" global). 
 	# Step 1: 
 	if isTPparam(paramName):	
@@ -3216,11 +3372,32 @@ def displayContour2D(csvFile='', plotting="show", residuals='', ranges='', label
 		resinterp=interp((xm,ym)).T # idk how, but somehow through interpolation, our indices get switched. 
 		x,y,residuals=xs,ys,resinterp
 
-
 	kwargs={"filename":filename, "heatOrContour":"contour", "xlabel":xlabel, "ylabel":ylabel, "title":title, "linecolor":"inferno", "linestyle":ls, "inline":True, "levels":levels, "useLast":useLast}
 
+	if "overplot" not in kwargs.keys():
+		kwargs["overplot"]=[]
+
+	for f in bonusCurveFiles:
+		data=np.loadtxt(f) # e.g. columns for Kz2 residual R1 for filename /..._Kz2.txt
+		lines=open(f).readlines()
+		lines=[ l for l in lines if "residual" in l ]
+		columns=lines[0].replace("#","").strip().split() # "# Kz2 \t residual \t R1" --> "Kz2 \t residual \t R1" --> [ "Kz2","residual","R1"]
+		xb=[] ; yb=[] ; rb=[]
+		for i,c in enumerate(columns):
+			f,u=getScaleUnits(c)
+			if c in xlabel:
+				xb=data[:,i]*f
+			if c in ylabel:
+				yb=data[:,i]*f
+			if c=="residual":
+				rb=data[:,i]
+		if len(xb)>0 and len(yb)>0 and len(rb)>0:
+			print(xb,yb)
+			#kwargs["overplot"].append( {"xs":xb,"ys":yb,"kind":"scatter","c":rb} ) # COLOR TO REPRESENT RESIDUAL
+			kwargs["overplot"].append( {"xs":xb,"ys":yb,"kind":"line","c":"r","linestyle":":"} ) # COLOR TO REPRESENT RESIDUAL
+
 	if len(bonusXY)>0:
-		kwargs["overplot"]=[{"xs":bonusXY[0],"ys":bonusXY[1],"kind":"scatter"}]
+		kwargs["overplot"].append( {"xs":bonusXY[0],"ys":bonusXY[1],"kind":"scatter"} )
 		if len(bonusXY)>2:
 			kwargs["overplot"][0]["c"]=bonusXY[2]
 
@@ -3529,8 +3706,8 @@ def perturbUncertainty(fileToRead,paramsToPerturb='',perturbBy='',plotting="none
 			return resultUnperturbed,uncertainty,list(zip(paramsToPerturb,perturbBy,delResults))
 
 	#COPY OFF PRE-EXISTING SETTINGS
-	global tp,autorpu,autorpr,autofm
-	tp_original,autorpu_original,autorpr_original,autofm_original=copy.deepcopy(tp),autorpu,autorpr,autofm #save settings
+	global tp,autorpu,autorpr,autofm,gamma
+	tp_original,autorpu_original,autorpr_original,autofm_original,gamma_original=copy.deepcopy(tp),autorpu,autorpr,autofm,gamma #save settings
 	
 	# no paramsToPerturb passed, OR, perturb names and values don't match, then we'll do defaulting:
 	paramsToPerturb,perturbBy=updatePTPPB(paramsToPerturb,perturbBy)
@@ -3541,6 +3718,53 @@ def perturbUncertainty(fileToRead,paramsToPerturb='',perturbBy='',plotting="none
 	resultUnperturbed,[RESo,sigo]=solveFunc["func"](fileToRead,**solveFunc["kwargs"]) #tuple of results (K, G...), corresponding to tofit. plotting: pass through none, show, or save
 	conditionalPrint("perturbUncertainty","--> "+str(resultUnperturbed))
 	tp_solved=copy.deepcopy(tp) #harvest solved-for TP, to use as our guesses for perturbed cases
+
+	# PSUEDO-DEPENDENT PARAMETERS: RULES: 
+	# 1. rpu affects gamma. if rpu is the same between reference and sample
+	#    (a portion of gamma uncertainty is dependent on rpu uncertainty)
+	#    then when we perturb rpu on the sample, also change gamma accordingly
+	# 2. Kz2 affects gamma. if Kz2 is *not* the same between reference and
+	#    sample (a portion of gamma uncertainty is thus "independent" thus
+	#    "independent", ie, propagated from elsewhere and not linked to
+	#    another perturbable parameter), then we use the independent error
+	#    in gamma as an additional perturbable parameter. e.g. if Kz2
+	#    affects gamma by 5%, R1 affects gamma by 7%, then the independent 
+	#    uncertainty of gamma is 8.6%
+	# READ IN PSUEDO-DEPENDENT PARAMETERS. 
+	paramsfile=fileToRead.split("/") ; paramsfile[-1]="dependentParams.txt" ; paramsfile="/".join(paramsfile)
+	dependentParams={} ; independentParams={}
+	if os.path.exists(paramsfile):
+		lines=open(paramsfile).readlines()
+		for l in lines:
+			if "-->" not in l: 		# e.g. "perturb rpu by 5.0% --> dgamma=-481.2 dependent\n"
+				continue
+			l=l.split()			# [ "perturb" , "rpu" , "by" , "5.0%" , "-->" , "dgamma=-481.2" , "dependent" ]
+			p=l[1]				# "rpu"
+			dp=l[-2].split("=")		# [ "dgamma" , "-481.2" ]
+			by=float(dp[1]) ; dp=dp[0][1:]	# "gamma", -481.2
+			if l[-1]=="dependent":
+				dependentParams[p]=[dp,by]	# "perturbing rpu (assumed constant perturb-by) will change gamma by -481.2"
+			if l[-1]=="independent":
+				independentParams[p]=[dp,by]	# "perturbing rpu (assumed constant perturb-by) will change gamma by -481.2"
+	# e.g. {"rpu":["gamma",-481.2],"rpr":["gamma",-23.72],"Kz1":["gamma":-65.43] }
+	conditionalPrint("perturbUncertainty","dependent: "+str(dependentParams))
+	# e.g. {"Kz2":["gamma",-637.7],"R1":["gamma",104.6],"C2":["gamma":-0.1095] }
+	conditionalPrint("perturbUncertainty","independent: "+str(independentParams))
+	# PSUEDO-DEPENDENT PARAMETERS: SEE RULE 2 ABOVE. GEOMETRIC MEAN BECOMES PERTURBABLE AMOUNT FOR THE AFFECTED PARAMETER
+	for k in independentParams.keys():					# on the reference sample, parameter "Kz2"
+		p,by=independentParams[k]					# affected "gamma" by -481.2
+		if p not in paramsToPerturb:					# (if gamma not already in perturb params, we should add it)
+			paramsToPerturb.append(p) ; perturbBy.append([])	#
+		i=paramsToPerturb.index(p)					# (which index is gamma in perturb params?)
+		if isinstance(perturbBy[i],(float,int)):			# (if gamma already WAS in perturb params (set to a number), then clear
+			perturbBy[i]=[]						#  it; we're overwriting it with geometric mean of pert. indep. gammas)
+		perturbBy[i].append(by/getParam(p)*100)				#  perturbBy should be "as a percent", so -481.2/1e4=4.8%
+	#conditionalPrint("perturbUncertainty","Perturbing parameters, by: "+", ".join([ p+":"+str(v)+"%" for p,v in zip(paramsToPerturb,perturbBy) ] ) )
+	for i,pb in enumerate(perturbBy):
+		if isinstance(pb,list):
+			perturbBy[i]=np.sqrt(np.sum(np.asarray(pb)**2))
+	
+	conditionalPrint("perturbUncertainty","Perturbing parameters, by: "+", ".join([ p+":"+str(v)+"%" for p,v in zip(paramsToPerturb,perturbBy) ] ) )
 
 	#FOR EACH PARAMETER, PERTURB IT, AND RESOLVE
 	plotting={"none":"none", "show":"none", "save":"none", "showall":"show"}[plotting] #translate plotting for perturbations (only "showall" shows perturbations)
@@ -3563,6 +3787,11 @@ def perturbUncertainty(fileToRead,paramsToPerturb='',perturbBy='',plotting="none
 		tp=copy.deepcopy(tp_solved)
 		setParam(P,getParam(P)*(1.+dP/100.),warning=False)
 
+		# # PSUEDO-DEPENDENT PARAMETERS: RULE 1: if perturbing a param affecting the ref sample fit, then also perturb the dependent param.
+		if P in dependentParams.keys():		# e.g. {"rpu":["gamma",-481.2],"rpr":["gamma",-23.72],"Kz1":["gamma":-65.43] }
+			originalDependent=getParam(dependentParams[P][0])			# get current value for "gamma", eg 10000
+			setParam(dependentParams[P][0],originalDependent+dependentParams[P][1])	# set "gamma" to dependent-perturbed value, e.g. 9582.8
+
 		conditionalPrint("perturbUncertainty","",pp=True)
 
 		resultPerturbed=[];RESp=100.
@@ -3584,9 +3813,15 @@ def perturbUncertainty(fileToRead,paramsToPerturb='',perturbBy='',plotting="none
 		if P=="fm":
 			autofm=autofm_original
 
+		# PUT DEPENDENT PARAMETERS BACK HOW THEY WERE
+		if P in dependentParams.keys():		# e.g. {"rpu":["gamma",-481.2],"rpr":["gamma",-23.72],"Kz1":["gamma":-65.43] }
+			setParam(dependentParams[P][0],originalDependent)	# set "gamma" back to original value
+
+	
 
 	#solving complete, restore old settings
 	tp=copy.deepcopy(tp_original) #restore
+	gamma=gamma_original
 	# REFIT USING STOCK PARAMETERS. (if you don't, solve > writeResultFile() will mean we're left with a perturbed result-file, which will mess up any subsequent solve(refit=False) runs. so *just in case*, we should refit
 	resultUnperturbed,[RESo,sigo]=solveFunc["func"](fileToRead,**solveFunc["kwargs"])
 	#compute sqrt(dKdA^2+dKdB^2+dKdC^2+...dKdN^2), sqrt(dGdA^2+dGdB^2+dGdC^2+...dGdN^2), sqrt(dEtcdE^2+dEtcdB^2+dEtcdC^2+...dKdN^2). "for each column in Dres ([[dKdA,dGdA,...],[dKdB,dGdB,...]...]), grab each row, square, sum, root.". nice of numpy to do this for us (squaring is done element-by-element. summing is elementwise as well (each element added to the next. here, "each element" will be each row. collapsing all rows into one. pow.5 is elementwise again as well, leaving the resulting list of uncertainties. noice.
@@ -4521,11 +4756,15 @@ def lplot(xs,ys,xlabel="",ylabel="",**kwargs): # This is a wrapper function whic
 	else:
 		plotXs=list(xs) ; plotYs=list(ys) ; plotLabels=list(labels) ; plotMarkers=list(markers)
 	
-	conditionalPrint("lplot","xs:"+str(xs)+",useLast:"+str(useLast)+" -> plotXs:"+str(plotXs))
+	#conditionalPrint("lplot","xs:"+str(xs))
+	#conditionalPrint("lplot","ys:"+str(ys))
+	conditionalPrint("lplot","len(plotXs)="+str(len(plotXs))+", "+"len(plotYs)="+str(len(plotYs))+", "+"len(plotMarkers)="+str(len(plotMarkers)))
+	conditionalPrint("lplot","useLast:"+str(useLast))
+	conditionalPrint("lplot","markers:"+str(markers)+", plotMarkers:"+str(plotMarkers))
 	# finally, RELOAD kwargs (eg if we're trying to reuse previous markers)
 	kwargs["markers"]=plotMarkers ; kwargs["labels"]=plotLabels
 	xs=plotXs ; ys=plotYs
-
+	conditionalPrint("lplot","kwargs: "+str(kwargs))
 	# fignames is a global list of bonus filenames for saving the plot (e.g. gui.py might want to save gui.png). if this is set, we STILL want to save to the passed filename, but we also want to (duplicatively) save to the files in fignames
 	figfiles=fignames+[kwargs.get("filename","")]
 	figfiles=[ f for f in figfiles if len(f) > 1 ]
