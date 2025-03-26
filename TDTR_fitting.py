@@ -191,6 +191,16 @@ hybridFactors=[1] # TODO currently hybridFactors are used in the order: gaussian
 #@profile
 nonzeroAbsorption="gradient"
 def delTomega(omegas,gkomega="",radii="",integration="trapz"):
+
+	# Moved from TDTRfunc! ram can blow up if you pass in a jillion omegas (which you might need for low-rep-rate TDTR, or high-res PWA), so loop through chunks and re-call delTomega
+	if len(omegas)>10000:				# performance considerations: all at once is faster, but heavier on RAM if too many ω values
+		delTo=np.zeros(len(omegas),dtype=np.complex128)
+		for i in range(int(np.ceil(len(omegas)/10000))):
+			print("processing delTomega in pieces:",i+1,"/",int(np.ceil(len(omegas)/10000)))
+			i1=i*10000 ; i2=(i+1)*10000
+			delTo[i1:i2]=delTomega(omegas[i1:i2])
+		return delTo
+
 	conditionalPrint("delTomega","",pp=True)
 	global alpha
 	# NON-ZERO OPTICAL PENETRATION DEPTH: discretize into 10 locations to dump heat, with a weighted average for signal
@@ -1100,14 +1110,7 @@ def TDTRfunc(ts,*parameterValues,store=False,addNoise=False,whackyFunc=None):
 
 	ns=np.arange(nmin,nmax+1)			# used for summing over many frequencies
 	omegas=omegaM+ns*omegaP 			# [ ωₙ ] , 1D list of ω=ωₘ+n*ωₚ values to pass into ΔT(ω). 
-	if len(omegas)>10000:				# performance considerations: all at once is faster, but heavier on RAM if too many ω values
-		delTplus=np.zeros(len(omegas),dtype=np.complex128)
-		for i in range(int(np.ceil(len(omegas)/10000))):
-			print("processing delTomega in pieces:",i+1,"/",int(np.ceil(len(omegas)/10000)))
-			i1=i*10000 ; i2=(i+1)*10000
-			delTplus[i1:i2]=delTomega(omegas[i1:i2])
-	else:
-		delTplus=delTomega(omegas)
+	delTplus=delTomega(omegas)
 	conditionalPrint("TDTRfunc","using parameters:",pp=True)
 
 	convergeAccelerator=np.exp(-pi*ns**2./nmax**2.)	# [ ωₙ ], each n represents a frequency, Cahill eq 20+, exp(-πf²/fₘₐₓ²)
@@ -1267,9 +1270,13 @@ def readFDTR(filename,returnFull=False):
 	if filename[-4:]==".csv":
 		data=np.loadtxt(filename,skiprows=1,delimiter=",")
 		a1,x,x,a2,x,x,x,fs,x,x,x,phi,pphi,x,mag,pmag,x,x,x,x,prx,pux,x,pry,puy,x,x,x,x=data.T
-		#print(mag,np.sqrt(prx**2+pry**2))
-		phi-=pphi
-		xs=mag*np.cos(phi) ; ys=mag*np.sin(phi)
+		#print("mag",mag/np.sqrt(prx**2+pry**2))
+		#print("pmag",pmag/np.sqrt(pux**2+puy**2))
+		#print("phi",phi/np.arctan2(pry,prx))
+		conditionalPrint("readFDTR","a1,a2 "+str(a1)+","+str(a2))
+		#print("pphi",pphi/np.arctan2(puy,pux))
+		#phi-=pphi # NO! pphi columns are not simultaneously-acquired pump! just pretend pump was not collected. 
+		xs=mag*np.cos(phi)/a1 ; ys=mag*np.sin(phi)/a1
 	else:
 		autos(filename)
 		data=np.loadtxt(filename,skiprows=2)
@@ -1431,20 +1438,40 @@ def PWAfunc(ts,*parameterValues,store=False,addNoise=False):
 	Zs=delTomega(omegas)*fft #; Zs=1j*np.sqrt((Zs.real**2+Zs.imag**2)) # ; Zs=1j*Zs.imag
 	# step 4: since fourier series is sum of sines and cosines, temperature at a given point in time is the sum of each Aₙ*cos(ωₙ*t)+Bₙ*sin(ωₙ*t)
 	def zt(ts):
-	#	z=np.zeros(len(ts))
-	#	for z,o in zip(Zs,omegas):	# METHOD 1: a for loop. goes easy on ram, but it's slow!
-	#		zt+=-z.real*np.cos(o*(ts))-z.imag*np.sin(o*(ts))
-		ot=np.outer(ts,omegas)		# METHOD 2: vectorized, twice as fast. but blows up ram if ts or omegas is yuge (eg, see testing49.py. we
-		return np.sum( Zs.real*np.cos(ot)-Zs.imag*np.sin(ot) , axis=1) # can use this same code to generate a realistic TDTR T(t) plot across 1/fm
+		# METHOD 1: a for loop. goes easy on ram, but it's slow!
+		#Z=np.zeros(len(ts)) ; from tqdm import tqdm
+		#for z,o in tqdm(zip(Zs,omegas),total=len(Zs)):
+		#	Z+=z.real*np.cos(o*(ts))-z.imag*np.sin(o*(ts))
+		#return Z
+		# METHOD 2: vectorized, twice as fast. but blows up ram if ts or omegas is yuge (eg, see testing49.py. we can use this same code to generate a realistic TDTR T(t) plot across 1/fm
+		#ot=ts[:,None]*omegas[None,:] # or np.outer(ts,omegas)		
+		#return np.sum( Zs.real*np.cos(ot)-Zs.imag*np.sin(ot) , axis=1) # 
+		# METHOD 3: hybrid, chunked? (can't use fixed chunk size like we did for delTomega though. if omegas is yuge, smaller ts chunk needed)
+		nAtATime=100000000 ; nAtATime=nAtATime//len(omegas) # 2GB ram on my computer. smaller = less ram more loops, bigger = more ram fewer loops
+		if len(ts)>nAtATime: 
+			ZT=np.zeros(len(ts))
+			for i in range(int(np.ceil(len(ts)/nAtATime))):
+				print("processing zt in pieces of size",nAtATime,"x",len(omegas),":",i+1,"/",int(np.ceil(len(ts)/nAtATime)))
+				i1=i*nAtATime ; i2=(i+1)*nAtATime
+				ZT[i1:i2]=zt(ts[i1:i2])
+			return ZT
+		ot=ts[:,None]*omegas[None,:] # or np.outer(ts,omegas)		
+		return np.sum( Zs.real*np.cos(ot)-Zs.imag*np.sin(ot) , axis=1) # sum over omegas
+
 	# step 5: generate our time-dependant signal, and shift for zero-crossing at t=0, then re-generate
+	conditionalPrint("PWAfunc","calculating time points, course")
 	ts_course=np.linspace(0,p,1000,endpoint=False) # generate one full cycle
 	z=zt(ts_course)
-	if z[0]>np.mean(z):
-		tshift=0
-	else:
-		f=interp1d(z[:450],ts_course[:450]) # use just the rise to swap axes: t vs mag
-		tshift=f(np.mean(z))
-	#tshift=0
+	dzdt=np.gradient(z,ts_course)			# we'll use this to find everywhere curve is "rising"
+	mask=np.zeros(len(z)) ; mask[z>np.mean(z)]=1	# we'll use this to find crossovers
+	dmdt=np.gradient(mask,ts_course)		# dm/dt=1 where there are rising crossovers
+	mask=np.zeros(len(z)) ; mask[dzdt>0]=1 ; mask[dmdt<=0]=0	# (do we need both criteria?)
+	i=np.where(mask==1)[0][0] #; print(mask,i)
+	f=interp1d(z[max(i-5,0):i+5],ts_course[max(i-5,0):i+5]) 	# use just the rise to swap axes: t vs mag
+	tshift=f(np.mean(z))
+	#print(mask,i,tshift)
+	
+	conditionalPrint("PWAfunc","calculating time points, passed times")
 	z=zt(ts+tshift)
 	# STEP 5 ALT: above seems to fail for unknown reasons, with arbitrary waveform 
 	
@@ -3177,6 +3204,7 @@ def contourDefaults(fileIn,fileOut,paramRanges,paramResolutions,solveFunc):
 		paramRanges=np.zeros((nParams,2))
 		paramRanges[:,0]=r*.5 ; paramRanges[:,1]=r*1.5
 		#paramRanges[:,0]=r*.01 ; paramRanges[:,1]=r*10
+		#paramRanges[:,0]=[0,] ; paramRanges[:,1]=[250,20e-9]
 	if isinstance(paramResolutions,(int,float)):
 		paramResolutions=[int(paramResolutions)]*nParams
 	if len(paramResolutions)==0:
@@ -4621,12 +4649,12 @@ normalizeSensitivity=False ; sensitivityAsPercent=False
 def sensitivity(percentPerturb=.01,plotting="show",title="",customPerturbs={'rpu':.1,'rpr':.1},xs=""): #for all parameters in "tofit", perturb them by n%, and check the change to the TDTR delay curve. this is indicative of how sensitive one is to that parameter (how easily one is able to extract this property). note: "plotting" options include: show, save, none. customPerturbs allows us to play with our percentPerturb on an individual-parameter level. Eg, maybe i'm not measuring my 10um diameter beam spot to the nanometer, and i want to see what happens if my beam spot size is doubled (perturb by 100%). default percentPerturb is fine when all parameters have equal footing (eg, for fitting), but if you're using sensitivity() to check for the influence of an assumed parameter and suspect there's a possibility that your assumed value may be way off, you can use customPerturbs
 	conditionalPrint("sensitivity","",pp=True)
 	if len(xs)==0:
-		xs={    "TDTR":np.linspace(minimum_fitting_time,5500e-12,40) , 
+		xs={    "TDTR":np.linspace(minimum_fitting_time,6e-9,40) , 
 			#"TDTR":np.linspace(minimum_fitting_time,1.9e-6,1000) , 
 			"SSTR":np.linspace(0,getVar("Pow"),10) , 
 			#"FDTR":np.logspace(2,8,100) , 
 			"FDTR":np.logspace(4.5,7.1,100) ,
-			"PWA":np.linspace(0,1/fm,100,endpoint=False) ,
+			"PWA":np.linspace(0,1/fm,min(int(sumNPWA),10000),endpoint=False) ,
 			"FD-TDTR": np.linspace(minimum_fitting_time,5500e-12,40) }[mode]
 	#f={"TDTR":TDTRfunc , "SSTR":SSTRfunc , "FDTR":FDTRfunc , "PWA":PWAfunc , "FD-TDTR":TDTRfunc}[mode]
 	f=func

@@ -1228,6 +1228,7 @@ def simult(event,rerun=False):						# [   run button    ] [ "file" label     ] [
 			log(exc)
 			out(exc)
 		newWin.destroy()
+		refresh("fakeevent") # detached window is linked to this process so status won't get updated. so we have to manually refresh at the end (previously user could just press ctrl+r to make their plot show up)
 		#r,e=ss3(files,types,plotting="save")
 		if getVar("autoFailed"):
 			out("WARNING: auto rpu/rpr/fm failed. check your file headers and/or radii.txt file! or change auto to \"no\" and set the values yourself")
