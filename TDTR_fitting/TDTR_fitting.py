@@ -1438,6 +1438,9 @@ def PWAfunc(ts,*parameterValues,store=False,addNoise=False):
 	Zs=delTomega(omegas)*fft #; Zs=1j*np.sqrt((Zs.real**2+Zs.imag**2)) # ; Zs=1j*Zs.imag
 	# step 4: since fourier series is sum of sines and cosines, temperature at a given point in time is the sum of each Aₙ*cos(ωₙ*t)+Bₙ*sin(ωₙ*t)
 	def zt(ts):
+		if isinstance(ts,(int,float)):
+			ot=ts*omegas
+			return np.sum( Zs.real*np.cos(ot)-Zs.imag*np.sin(ot) , axis=0)
 		# METHOD 1: a for loop. goes easy on ram, but it's slow!
 		#Z=np.zeros(len(ts)) ; from tqdm import tqdm
 		#for z,o in tqdm(zip(Zs,omegas),total=len(Zs)):
