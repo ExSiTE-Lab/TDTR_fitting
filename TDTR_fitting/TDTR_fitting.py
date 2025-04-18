@@ -1330,7 +1330,7 @@ def readFDTR(filename,returnFull=False):
 	Y = { "R":-xs/ys , "X":normalize(fs,xs) , "Y":normalize(fs,ys) , "M":normalize(fs,(xs**2.+ys**2.)**.5) , "P":np.arctan2(ys,xs)}[fitting]	
 	return fs,Y
 
-fdtrDelay=5000e-12
+#fdtrDelay=5000e-12 # WHY? I'm gonna hijack minimum_fitting_time instead. then i have to zero work to get it into the gui! teehee! 
 # HOW DO WE HANDLE PULSED VS CW FDTR? if mode="pFDTR", then FDTRfunc handles it in a manner similar to pSSTR
 def FDTRfunc(fs,*parameterValues,store=False,addNoise=False,whackyFunc=None,returnFull=False):
 	# Step 1: set passed parameters, infer mofulation frequency, and so on	
@@ -1341,9 +1341,10 @@ def FDTRfunc(fs,*parameterValues,store=False,addNoise=False,whackyFunc=None,retu
 
 	if "p" in mode:
 		conditionalPrint("FDTRfunc","(pulsed)")
-		global fm,minimum_fitting_time
-		old_minimum_fitting_time=minimum_fitting_time
-		minimum_fitting_time=fdtrDelay ; ts=np.asarray([fdtrDelay])
+		global fm#,minimum_fitting_time
+		#old_minimum_fitting_time=minimum_fitting_time
+		#minimum_fitting_time=fdtrDelay
+		ts=np.asarray([minimum_fitting_time])
 		popGlos()
 
 		Zs=[]
@@ -1359,7 +1360,7 @@ def FDTRfunc(fs,*parameterValues,store=False,addNoise=False,whackyFunc=None,retu
 			conditionalPrint("FDTRfunc","calculating frequency: "+str(f))
 			ns=np.arange(nmin,nmax+1)			# used for summing over many frequencies
 			omegas=2*np.pi*f+ns*omegaP 			# [ ωₙ ] , 1D list of ω=ωₘ+n*ωₚ values to pass into ΔT(ω). 
-			delTplus=delTomega(omegas) ; ts=np.asarray([fdtrDelay])
+			delTplus=delTomega(omegas) ; ts=np.asarray([minimum_fitting_time])
 			#conditionalPrint("TDTRfunc","using parameters:",pp=True)
 			convergeAccelerator=np.exp(-pi*ns**2./nmax**2.)	# [ ωₙ ], each n represents a frequency, Cahill eq 20+, exp(-πf²/fₘₐₓ²)
 			#Z(t𝘥)= Σ ΔT(ωₘ+n*ωₚ)*exp(i*n*ωₚ*t𝘥) #from -∞ to ∞, Jiang eq 2.21/2.22 (modified) / Schmidt eq 2. 
@@ -1902,7 +1903,7 @@ def resultsPlotter(fileToRead,xs,data,solvedParams,plotting,bonusCurves='',mask=
 	if len(mask)>0:
 		Xs.insert(1,xs[mask==1]) ; Ys.insert(1,data[mask==1]) ; dlbs.insert(1,"masked") ; mkrs.insert(1,"go")
 	print(dlbs,mkrs)
-	lplot(Xs, Ys, xlabel, ylabel, title=title, filename=filename, labels=dlbs, markers=mkrs, useLast=useLast, xscale=scx) # ,ylim=[-.1,0.8])
+	lplot(Xs, Ys, xlabel, ylabel, title=title, filename=filename, labels=dlbs, markers=mkrs, useLast=useLast, xscale=scx)#,xlim=[0,None]) # ,ylim=[-.1,0.8])
 	return residuals
 
 def figFile(fileToRead,plotting,subfolder="pics"):
@@ -4657,13 +4658,14 @@ def sensitivity(percentPerturb=.01,plotting="show",title="",customPerturbs={'rpu
 			"SSTR":np.linspace(0,getVar("Pow"),10) , 
 			#"FDTR":np.logspace(2,8,100) , 
 			"FDTR":np.logspace(4.5,7.1,100) ,
+			"pFDTR":np.logspace(4.5,7.1,100) ,
 			"PWA":np.linspace(0,1/fm,min(int(sumNPWA),10000),endpoint=False) ,
 			"FD-TDTR": np.linspace(minimum_fitting_time,5500e-12,40) }[mode]
 	#f={"TDTR":TDTRfunc , "SSTR":SSTRfunc , "FDTR":FDTRfunc , "PWA":PWAfunc , "FD-TDTR":TDTRfunc}[mode]
 	f=func
-	xlabel={ "TDTR":"time delay (ps)" , "SSTR":"Pump power (mW)" , "FDTR":"frequency (Hz)" , "PWA":"t (ms)" , "FD-TDTR":"time delay (ps)"}[mode]
-	factor={"TDTR":1e12,"SSTR":1,"FDTR":1,"PWA":1e3}[mode]
-	xscale={"TDTR":"linear","SSTR":"linear","FDTR":"log","PWA":"linear"}[mode]
+	xlabel={ "TDTR":"time delay (ps)" , "SSTR":"Pump power (mW)" , "FDTR":"frequency (Hz)" , "pFDTR":"frequency (Hz)" , "PWA":"t (ms)" , "FD-TDTR":"time delay (ps)"}[mode]
+	factor={"TDTR":1e12,"SSTR":1,"FDTR":1,"pFDTR":1,"PWA":1e3}[mode]
+	xscale={"TDTR":"linear","SSTR":"linear","FDTR":"log","pFDTR":"log","PWA":"linear"}[mode]
 
 	initParams=getTofitVals()
 	origVals=f(xs)
