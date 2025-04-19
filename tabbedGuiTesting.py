@@ -26,6 +26,17 @@ matplotlib.use("TkAgg")
 # |_________________________________|
 # 
 # previous gui.py, I had a mongo dict which auto-filled gui elements (buttons, entry fields, etc) which was kinda gross. 
+# Instead, each tab's layout is defined by an elements_* 2D matrix, which denotes what gui elements are where, on a grid
+# Elements can span multiple rows or columns. 
+# The code immediately below creates the framework (a tkinter Frame for the tabbing, and results plot/output)
+# processElementLists() processes those 2D matrix grids and puts them onto the tabs
+# Elements include: 
+# Buttons: needs a label, needs a local function (which takes only an "event" argument) which can call into TDTR_fitting.py functions
+# dropdown menus: needs a label, need to define the entries in the list, and what TDTR_fitting.py global they will write to
+# Entry fields: single-line text/number entry. needs a label, need to define the TDTR_fitting.py global it writes to
+# Text field: same as Entry, but multi-line is allowed. 
+# Both Entry and Text can optionally be given a converter function (to go between strings, as displayed, and whatever data type TDTR_fitting.py expects). Two examples include: convert2um (just does scaling) and formatTP (borrowed from gui.py's l2s2D and s2l2D). 
+# When a button is pressed, we FIRST load all globals from the current tab (into TDTR_fitting.py), then run the function specified, then grab the matplotlib objects from TDTR_fitting.py and display them. This is all done via the wrapper() function. 
 
 # 2D MATRIX DENOTES WHERE THINGS GO:
 # "button;label;functionToRun"
@@ -240,13 +251,48 @@ def wrapper(func): # https://www.geeksforgeeks.org/function-wrappers-in-python/
 		func(*args,**kwargs)
 		updatePlot(str(func))
 	return wrapped
+
+lastDirec="./"
+def ask(multiple=True,fileOrDirec="file",text=""):
+	global lastDirec
+	# ask user for files:
+	window.update() # Trying this to see if it gets rid of hanging issues on mac: https://stackoverflow.com/questions/21866537/what-could-cause-an-open-file-dialog-window-in-tkinter-python-to-be-really-slow
+	if fileOrDirec=="file":
+		if multiple:
+			text={True:text,False:"Open"}[len(text)>0]
+			selected=list(tk.filedialog.askopenfilenames(initialdir=lastDirec,title=text))
+		else:
+			text={True:text,False:"Open"}[len(text)>0]
+			selected=[tk.filedialog.askopenfilename(initialdir=lastDirec,title=text)]
+		lastDirec="/".join(selected[-1].split("/")[:-1])
+	if fileOrDirec=="direc":
+		text={True:text,False:"Choose Directory"}[len(text)>0]
+		selected=tk.filedialog.askdirectory(initialdir=lastDirec,title=text)
+		lastDirec=selected
+	return selected
+
 @wrapper
 def runSolve(event):
-	print("RUN SOLVE!")
+	files=ask()
+	if len(files)==0:
+		return
+	results=[]
+	#log("files:"+str(files))
+	for f in files:
+		res,err=solve(f,plotting="save")
+		print(res,err)
+		results.append(res)
+		resultString=" , ".join( [p+"="+sigFigs(v,4) for p,v in zip(getVar("tofit"),res) ] )+" , "+sigFigs(err[0]*100)+"%"
+		resultString+=" , "+f.split("/")[-1][:77-len(resultString)]
+		printToResultsPanel(resultString)
+		#updatePlot("solve")
+	results=np.asarray(results)
+	res,err=np.mean(results,axis=0),np.std(results,axis=0)
+	resultStrings=[p+" = "+sigFigs(v*getScaleUnits(p)[0],4)+"+/-"+sigFigs(dv)+" "+getScaleUnits(p)[1] for p,v,dv in zip(getVar("tofit"),res,err) ]
+	printToResultsPanel("averaged +/- std:\n"+" , ".join(resultStrings))
 
 @wrapper
 def runSens(event):
-	print("RUN SENS")
 	sensitivity()
 
 # borrow the plot object which TDTR_fitting > niceplot generated, and display them
@@ -286,11 +332,11 @@ def updatePlot(whatWasRunning):
 	window.update() # problem with start_event_loop, it takes control over the main loop from tkinter! but this (https://matplotlib.org/stable/api/backend_bases_api.html#matplotlib.backend_bases.FigureCanvasBase.draw_idle) says we "redraw once control returns to the GUI event loop", so how do we do that without stealing? just update the window mainloop.
 #def updatePlot(funcName,fig=None,ax=None):
 
-def printToResultsPanel(printstring):
+def printToResultsPanel(printstring): # previously "out()"
 	te_res.insert(tk.END,printstring+"\n")	# write to results Text field, including a new line
 	te_res.see("end")			# and scroll the text entry field to the bottom
 	frameR.update()				# update the frame containing the text field
-	log("[output] : "+printstring)
+	#log("[output] : "+printstring)
 
 
 		
