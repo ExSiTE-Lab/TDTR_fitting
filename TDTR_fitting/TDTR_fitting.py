@@ -1889,7 +1889,7 @@ def resultsPlotter(fileToRead,xs,data,solvedParams,plotting,bonusCurves='',mask=
 	title=fileToRead.split("/")[-1]+",R^2 = "+str(np.round(residuals*100,2))+"%" ; filename=figFile(fileToRead,plotting)
 
 	stack=traceback.format_stack()
-	useLast = True in [ "gui" in e for e in stack ] # if this was called by the gui.py code, then use the previous matplotlib object to plot
+	useLast = True in [ "gui" in e or "testing79" in e for e in stack ] # if this was called by the gui.py code, then use the previous matplotlib object to plot
 
 	#print("TDTR_fitting > resultsPlotter > useLast",useLast)
 	for curve in bonusCurves:
@@ -2969,12 +2969,28 @@ def isTPparam(paramName): # detect params that edit "tp" global, e.g. "d1", "Kz2
 			return True						# if both pieces are legit "Kz","2" etc, then return True
 	return False # OR, if you cycled through all characters, didn't find a number, it's not a tp
 
+def handleTPasString(newtp):
+	newtp=str(newtp)
+	print(newtp)
+	#if isinstance(str,newtp):
+	#	newtp=
+	#	for row in newtp:
+	#		for r,row in enumerate(list(value)):
+	#		for c,v in enumerate(list(row)):
+	#			print(r,c,v)
+	#			tp[r][c]=v
+	#	return
+
+
 # TODO I think we have found some sanity on setVar vs setParam and getVar vs getParam: setParam does it all now, and setVar is just a wrapper. we could get rid of it, but we'll keep it around in case old code stull uses it. TODO NEEDS SUPER MEGA THOROUGH TESTING THOUGH
 # (historically, setParam was meant for internal-use only, for setting things that might be set during fitting, e.g. "Kz2" which would update the "tp" thermal properties global. setVar was meant for external-use only, for setting global variables which would be easily-enough set internally via "global {gloName}" etc. And it was up to the user to keep track of which things are params vs glos. in reality though, it was common practice externally to, for example, "importMatrix(matfile); setParam('d1',d1)" to customize the thermal properties matrix that was imported. conversely, it was common practice internally to, for example "setVar(varname)" to take advantage of the indirection (where we have the global's name as a string). 
 paramAliases={"rpu":"rpump", "rpr":"rprobe", "fm":"fm", "fp":"fp", "da":"depositAt", "ma":"measureAt", 
 "sphase":"slopedPhaseOffset","phase":"variablePhaseOffset","magnitude":"variableMagnitudeScaling"}
 def setParam(paramName,value,warning=True): # setParam: during fitting, we update things (by name), expect the relevant globals to be updated, and then the model is regenerated (e.g. TDTRfunc generating the TDTR curve), iteratively, until a good fit is achieved. This should handle thermal properties by name (e.g. "Kz2" should update the thermal property matrix ("tp" global) 3rd row 2nd column. "rpu" on the other hand will update the "rpump" global). 
 	# Step 1: 
+	if paramName=="tp":
+		handleTPasString(value)
+		return
 	if isTPparam(paramName):	
 		r,c=getRowCol(paramName)  #to fit "Kz1" -> lookup list "Kzs", and set index 0 (first layer's)
 		tp[r][c]=value
