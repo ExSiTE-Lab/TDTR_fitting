@@ -3,7 +3,7 @@ from tkinter import *
 from tkinter import ttk
 #import sys ; sys.path.insert(1,"../")
 from TDTR_fitting import *
-
+import datetime,traceback
 from matplotlib.backends.backend_tkagg import (FigureCanvasTkAgg, NavigationToolbar2Tk)
 matplotlib.use("TkAgg")
 
@@ -69,55 +69,76 @@ elements_TDTR=[
  [ "en;pert. params;l_pertparams",     "en;pert. by;l_pertby"    , "en;cont. val (%);l_contval"  , "en;cont. param;l_contparam"  ]]
 
 elements_SSTR=[
- [  "btn;Import Vals;matImport"  ,    "btn;Fit Data;solving"     ,     "btn;refit;refit"     ,  "btn;avg files;avgFiles"   ],
- [  "btn;Perturb Unc.;pertUnc"   ,  "btn;Fast Contour;fastCont"  ,  "btn;2D Contour;cont2D"  ,  "btn;Sensitivity;runSens"  ],
- [ "text;"+tpHeader+";tp;formatTP" ,             ""              ,            ""             ,             ""              ], 
- [              ""               ,               ""              ,            ""             ,             ""              ], 
- [              ""               ,               ""              ,            ""         , "text;"+tpHeader+";tp;formatTP" ],
- [     ""     , "entry;fitting params;tofit;formatParamNames" , "entry;fitting params;tofit;formatParamNames" ,     ""     ],
- [  "en;pump rad (um);rpu;conv2um" , "en;probe rad (um);rpr;conv2um" , "en;f mod (Hz);fm"   ,         "en;gamma;gamma"     ]]
+ [  "btn;Import Vals;matImport"  ,    "btn;Fit Data;solving"     ,       "btn;refit;refit"       ,   "btn;avg files;avgFiles"    ],
+ [  "btn;Perturb Unc.;pertUnc"   ,  "btn;Fast Contour;fastCont"  ,              ""               ,   "btn;Sensitivity;runSens"   ],
+ [ "text;"+tpHeader+";tp;formatTP" ,             ""              ,              ""               ,              ""               ], 
+ [              ""               ,               ""              ,              ""               ,              ""               ], 
+ [              ""               ,               ""              ,              ""               , "text;"+tpHeader+";tp;formatTP" ],
+ [            "" , "entry;fitting params;tofit;formatParamNames" , "entry;fitting params;tofit;formatParamNames" , ""            ],
+ [  "en;pump rad (um);rpu;conv2um" , "en;probe rad (um);rpr;conv2um" , "en;f mod (Hz);fm"        ,         "en;gamma;gamma"      ],
+ [ "en;pert. params;l_pertparams",     "en;pert. by;l_pertby"    , "en;cont. val (%);l_contval" ,               ""               ]]
+
+elements_other=[
+ [ "en;verbose funcs;verbose;format1DList","","","en;verbose funcs;verbose;format1DList"],
+ [ "drop;phase corr.;yes,no;l_restore","","",""]]
+
+
 #buttonTitles=["Import Vals", "Fit Data", "Perturb Unc.", "Fast Contour", "Contours2D" ,"T(r,z)" ,"Sensitivity", "View Map", "(refit)", 
 #	"(phase)" , "avg files", "fibercals"]
 # buttonFuncs=[ runMatImport ,  runSolve ,  runPerturbing,  runContour   , runContour2D , runTRZ  , runSens     ,  viewMap  ,  refit   , 
 #	checkPhase, avgFiles   , fibercals ]
 
+#setVar("verbose",["solveTDTR"])
+
 cellWidth=11 # 
 
-# SETTING UP THE GUI AND PLACING THINGS:
-window=Tk() ; window.title("TDTR fitting!")
-# left vs right panels
-frameL=Frame(master=window) ; frameL.grid(row=0,column=0,sticky="NSEW")
-frameR=Frame(master=window) ; frameR.grid(row=0,column=1,sticky="NSEW")
-# 2:3 ratio of width for buttons vs plot panel
-window.columnconfigure(0,weight=1,uniform="window") ; window.columnconfigure(1,weight=2,uniform="window")
-window.rowconfigure(0,weight=1,uniform="window") # one row, set weight to allow it to expand with the window
+def main():
+	global window,frameL,frameR,framePlot,frameResu,tabControl,tabs,tabTitles,te_res
+	# SETTING UP THE GUI AND PLACING THINGS:
+	window=Tk() ; window.title("TDTR fitting!")
+	# left vs right panels
+	frameL=Frame(master=window) ; frameL.grid(row=0,column=0,sticky="NSEW")
+	frameR=Frame(master=window) ; frameR.grid(row=0,column=1,sticky="NSEW")
+	# 2:3 ratio of width for buttons vs plot panel
+	window.columnconfigure(0,weight=1,uniform="window") ; window.columnconfigure(1,weight=2,uniform="window")
+	window.rowconfigure(0,weight=1,uniform="window") # one row, set weight to allow it to expand with the window
 
-# top vs bottom panels on the right
-framePlot=Frame(master=frameR) ; framePlot.grid(row=0,column=0,sticky="NSEW")
-frameResu=Frame(master=frameR) ; frameResu.grid(row=1,column=0,sticky="NSEW")
-# 3:1 ratio of height for plot vs results panel
-frameR.rowconfigure(0,weight=3,uniform="frameR") ; frameR.rowconfigure(1,weight=1,uniform="frameR")
-frameR.columnconfigure(0, weight=1,uniform="frameR") # one column, set weight to allow it to expand with the window
+	# top vs bottom panels on the right
+	framePlot=Frame(master=frameR) ; framePlot.grid(row=0,column=0,sticky="NSEW")
+	frameResu=Frame(master=frameR) ; frameResu.grid(row=1,column=0,sticky="NSEW")
+	# 3:1 ratio of height for plot vs results panel
+	frameR.rowconfigure(0,weight=3,uniform="frameR") ; frameR.rowconfigure(1,weight=1,uniform="frameR")
+	frameR.columnconfigure(0, weight=1,uniform="frameR") # one column, set weight to allow it to expand with the window
 
-# tabs in the buttons panel
-tabControl = ttk.Notebook(frameL) ; tabs={} ; tabTitles=["TDTR","SSTR","FDTR","PWA","multifitting"]
-# results panel
-lb_res=tk.Label(master=frameResu,text="RESULTS:")
-te_res=tk.Text(master=frameResu,height=7)				# text entry field object
-lb_res.grid(row=0,column=0,sticky="EW") ; te_res.grid(row=1,column=0,sticky="EW")			# add both objects to the window
-frameResu.columnconfigure(0,weight=1,uniform="window")
-
-
-for tabTitle in tabTitles:
-	tabs[tabTitle]=ttk.Frame(tabControl)
-	tabControl.add(tabs[tabTitle],text=tabTitle)
-	tabControl.pack(expand=1, fill="both")
+	# tabs in the buttons panel
+	tabControl = ttk.Notebook(frameL) ; tabs={} ; tabTitles=["TDTR","SSTR","FDTR","PWA","multifitting","other"]
+	# results panel
+	lb_res=tk.Label(master=frameResu,text="RESULTS:")
+	te_res=tk.Text(master=frameResu,height=7)				# text entry field object
+	lb_res.grid(row=0,column=0,sticky="EW") ; te_res.grid(row=1,column=0,sticky="EW")			# add both objects to the window
+	frameResu.columnconfigure(0,weight=1,uniform="window")
 
 
-# UNCOMMENT THESE TO DRAW COLOR-CODED BORDERS AROUND EACH FRAME (EG, TO CHECK THAT GRID ELEMENTS EXPAND APPROPRIATELY)
-colors=["red","orange","yellow","green","blue","purple","black"]*10
-for i,frame in enumerate([window,frameL,frameR,framePlot,frameResu]):
-		frame.configure(highlightbackground=colors[i],highlightthickness=10)
+	for tabTitle in tabTitles:
+		tabs[tabTitle]=ttk.Frame(tabControl)
+		tabControl.add(tabs[tabTitle],text=tabTitle)
+		tabControl.pack(expand=1, fill="both")
+
+
+	# UNCOMMENT THESE TO DRAW COLOR-CODED BORDERS AROUND EACH FRAME (EG, TO CHECK THAT GRID ELEMENTS EXPAND APPROPRIATELY)
+	colors=["red","orange","yellow","green","blue","purple","black"]*10
+	for i,frame in enumerate([window,frameL,frameR,framePlot,frameResu]):
+			frame.configure(highlightbackground=colors[i],highlightthickness=10)
+
+	# even if a tab is currently empty, pass it an empty list (which populates globals)
+	processElementLists(tabTitles,[elements_TDTR,elements_SSTR,[],[],[],elements_other]) 
+	resume()
+
+	window.protocol("WM_DELETE_WINDOW", quit_me)
+
+	window.mainloop()
+
+
 
 # https://stackoverflow.com/questions/13079299/dynamically-adding-methods-to-a-class
 # once you create a tkinter Text object, add this via setattr(obj, 'set', TextSetter)
@@ -139,11 +160,13 @@ def createSetterGetter(tktextobj):
 def processElementLists(tabTitles,elementLists):
 	# Put each tab's grid elements on each tab
 	for tabKey,elementsList in zip(tabTitles,elementLists):
-		nrows,ncols=len(elementsList),len(elementsList[0])
 		processedElements=[]	# don't repeat elements (if elements span multiple rows or columns, and are thus entered twice)
 		master=tabs[tabKey]	# all objects will be added to this tab
 		globalLookup[tabKey]={}	# this links global names (from TDTR_fitting) to tk objects
 		globalSpecialHandling[tabKey]={}
+		if len(elementsList)==0:
+			continue
+		nrows,ncols=len(elementsList),len(elementsList[0])
 		for row in range(nrows):
 			for col in range(ncols):
 				master.columnconfigure(col,weight=1,uniform=str(master))	# ensure grid elements can stretch horizontally! 
@@ -240,6 +263,11 @@ def formatTP(tp,whichWay="format"):
 		list2D=[[v.strip() for v in row] for row in list2D] # purge whitespace
 		list2D=[["Kz" if v in ["Kz","kz","KZ"] else eval(v) for v in row] for row in list2D] # tp mayn't contain strings! 
 		return list2D
+def format1DList(val,whichWay="format"):
+	if whichWay=="format":
+		return ",".join( [ str(v) for v in val ] )
+	else:
+		return val.split(",")
 
 def ynbool(val,whichWay="format"):
 	if whichWay=="format":
@@ -262,9 +290,9 @@ def formatParamNames(val,whichWay="format"):
 		return val.split(",")
 
 # this links global names (from TDTR_fitting) to tk objects
-globalLookup={}			# tdtrGloName:guiEntryOrDropdownObj
-globalSpecialHandling={}	# tdtrGloName:customConverterFunc
-localVars={"l_pertparams":"all","l_pertby":"5","l_contval":"2.5","l_contparam":"Kz2"}	# localVarName:val
+globalLookup={}			# tabName={tdtrGloName:guiEntryOrDropdownObj}
+globalSpecialHandling={}	# tabName={tdtrGloName:customConverterFunc}
+localVars={"l_pertparams":"all","l_pertby":"5","l_contval":"2.5","l_contparam":"Kz2","l_restore":"yes"}	# localVarName:val
 def updateAllFieldsFromGlobals():
 	for tab in globalLookup.keys():
 		for glo in globalLookup[tab].keys():				# e.g. "rpu" as a string
@@ -280,22 +308,77 @@ def updateAllFieldsFromGlobals():
 			globalLookup[tab][glo].set(val)				# and set the corrosponding gui entry object
 
 def updateAllGlobalsFromFields(tab):
+	global localVars
 	for glo in globalLookup[tab].keys():					# e.g. "rpu" as a string
 		val=globalLookup[tab][glo].get()				# get gui entry object's value (will be a string)
 		if glo in globalSpecialHandling[tab].keys():			# e.g. "rpu" linked special function "convert2um"...
-			fun=globals()[globalSpecialHandling[tab][glo]]	# ...which should have unformat option to go back (scale, unscale, etc)
+			fun=globals()[globalSpecialHandling[tab][glo]]		# ...which should have unformat option to go back (scale, unscale, etc)
 			val=fun(val,"unformat")
 		else:
-			if glo in localVars.keys():			# OR, retrieve existing value (locals)
+			if glo in localVars.keys():				# OR, retrieve existing value (locals)
 				oldval=localVars[glo]
 			else:
-				oldval=getVar(glo)			# OR, retrieve existing value (TDTR globals)
-			val=type(oldval)(val)				# and use it's type to convert from string back to the correct type
-		#print("updateAllGlobalsFromFields",glo,"-->",val)
+				oldval=getVar(glo)				# OR, retrieve existing value (TDTR globals)
+			val=type(oldval)(val)					# and use it's type to convert from string back to the correct type
 		if glo in localVars.keys():
-			val=localVars[glo]
+			localVars[glo]=val					# and update local variable, or globals, with value
 		else:
+			print("setVar",glo,val)
 			setVar(glo,val)
+
+# read gui.log file, update TDTR_fitting.py globals, and localVars. updateAllFieldsFromGlobals can then update the fields
+def resume():
+	global files
+	if not os.path.exists("gui.log"):
+		return
+	lines=open("gui.log").readlines() ; foundtp=False ; foundfiles=False
+	for i in reversed(range(len(lines))):
+		if ( not foundtp ) and len(lines[i])>10 and lines[i][:10]=="settings: ":
+			print("FOUND SETTINGS LINE")
+			rows=lines[i].replace("settings: ","").split(";")[0].split("], [")
+			tp=[]
+			for row in rows:
+				row=row.strip().replace("[","").replace("]","")
+				row=[ v.replace("'","") if "k" in v.lower() else float(v) for v in row.split(",") ]
+				tp.append(row)
+				print(row)
+				#tp.append(
+			#tp=""
+			#print(rows)
+			#tp=[] ; Cs=[] ; Kzs=[] ; Krs=[] ; Gs=[] ; ds=[]
+			#for n in range(10):
+			#	print(lines[i+n])
+			#	if "Cs: [" in lines[i+n]:
+			#		Cs=[ float(v) for v in lines[i+n].split("[")[-1].split("]")[0].split(",") ]
+			#	if "Kzs: [" in lines[i+n]:
+			#		Kzs=[ float(v) for v in lines[i+n].split("[")[-1].split("]")[0].split(",") ]
+			#	if "ds: [" in lines[i+n]:
+			#		ds=[ float(v) for v in lines[i+n].split("[")[-1].split("]")[0].split(",") ]
+			#	if "Krs: [" in lines[i+n]:
+			#		Krs=[ float(v) for v in lines[i+n].split("[")[-1].split("]")[0].split(",") ]
+			#	if "Gs: [" in lines[i+n]:
+			#		Gs=[ float(v) for v in lines[i+n].split("[")[-1].split("]")[0].split(",") ]
+			#	if len(Cs)>0 and len(Kzs)>0 and len(Krs)>0 and len(Gs)>0 and len(ds)>0:
+			#		tp=[]
+			#		for j in range(len(Cs)):
+			#			tp.append([Cs[j],Kzs[j],ds[j],Krs[j]])
+			#			if j<len(Cs)-1:
+			#				RG={True:1/Gs[j],False:Gs[j]}[getVar("useTBR")]
+			#				tp.append([RG])
+			#		print("setVar","tp",tp)
+			#		setVar("tp",tp)
+			#		break
+			print("setVar","tp",tp)
+			setVar("tp",tp)
+			foundtp=True
+			#break
+		if ( not foundfiles) and len(lines[i])>10 and lines[i][:7]=="files:[":
+			files=lines[i].replace("'","").split("[")[1].split("]")[0].split(",")
+			print("FOUND FILES LINE:",files)
+			foundfiles=True
+		if foundtp and foundfiles:
+			break
+	updateAllFieldsFromGlobals()
 
 # WRAPPER FUNCTIONS FOR TDTR_fitting.py FUNCTIONS.
 
@@ -304,10 +387,26 @@ def wrapper(func): # https://www.geeksforgeeks.org/function-wrappers-in-python/
 	def wrapped(*args,**kwargs):
 		tabIndex = tabControl.index("current")
 		tabName=tabTitles[tabIndex] # print("tabName",tabName)
+		# grab all globals from all OTHER tabs first, then from this tab (this tab overrides others, but settings on other tabs might matter)
+		for tab in tabTitles:
+			if tab==tabName:
+				continue
+			updateAllGlobalsFromFields(tab)
 		updateAllGlobalsFromFields(tabName)
 		if tabName in ["TDTR","FDTR","SSTR","PWA"]:
 			setParam("mode",tabName)
-		func(*args,**kwargs)
+		#writeToLogFile("settings: "+prettyPrint(pop=True,printOrReturn="return",)+";"+str(localVars))
+		#fieldGlos=
+		writeToLogFile("settings: "+str(getVar("tp"))+" ; "+str(localVars))
+		writeToLogFile("running:"+str(func))
+		try:
+			func(*args,**kwargs)
+		except Exception:
+			e=traceback.format_exc()
+			printToResultsPanel("ERROR WITH FUNC:"+str(func)+", please send your gui.log file to the developer. Windows: log file can be found in the same folder as the executable. MacOS: log file can be found in your \"home\" folder.")
+			printToResultsPanel(str(e))
+			writeToLogFile("[FAILURE] : \n")						# and log that to file
+			writeToLogFile(str(e))
 		updatePlot(str(func))
 	return wrapped
 
@@ -330,8 +429,6 @@ def ask(multiple=True,fileOrDirec="file",text=""):
 		lastDirec=selected
 	return selected
 
-
-
 @wrapper
 def matImport(event): # was "runMatImport"
 	files=ask(multiple=False)
@@ -349,7 +446,7 @@ def solving(event,askForFiles=True): # was "runSolve"
 	if len(files)==0:
 		return
 	results=[]
-	#log("files:"+str(files))
+	writeToLogFile("files:"+str(files))
 	for f in files:
 		res,err=solve(f,plotting="save")
 		#print(res,err)
@@ -411,6 +508,8 @@ def fastCont(event): # was "runContour"
 	fs=files ; solvefunc={"func":solve,"kwargs":{}}
 	for f in fs:
 		p=localVars["l_contparam"]
+		if getVar("mode")=="SSTR":
+			p=getVar("tofit")[0]
 		thresh=float(localVars["l_contval"])
 		bnds,fout=measureContour1Axis(f,paramOfInterest=p,plotting="savefinal",resolution=100,threshold=thresh/100,solveFunc=solvefunc)
 		error=(bnds[1]-bnds[0])/2 ; errorp=(bnds[1]-bnds[0])/(bnds[1]+bnds[0])
@@ -478,25 +577,24 @@ def printToResultsPanel(printstring): # previously "out()"
 	te_res.insert(tk.END,printstring+"\n")	# write to results Text field, including a new line
 	te_res.see("end")			# and scroll the text entry field to the bottom
 	frameR.update()				# update the frame containing the text field
-	#log("[output] : "+printstring)
+	writeToLogFile("[output] : "+printstring)
 
-
-		
-
-processElementLists(["TDTR","SSTR"],[elements_TDTR,elements_SSTR])
-
+def writeToLogFile(logstring): # previously "log()"
+	f=open("gui.log",'a+')
+	now=datetime.datetime.now() ; now=now.strftime("%Y-%m-%d_%H:%M:%S")
+	f.write(now+"\n")
+	f.write(logstring+"\n")
+	f.close()
 
 def quit_me():				# weird thing, when we generate a matplotlib plot, tkinter main loop doesn't exit when we click the x.
-	#log("Quitting")		# to deal with that, we detect a "delete window" and then use that to quit.
+	writeToLogFile("Quitting")	# to deal with that, we detect a "delete window" and then use that to quit.
 	window.quit()			# https://stackoverflow.com/questions/55201199/the-python-program-is-not-ending-when-tkinter-window-is-closed
 	window.destroy()
 	global done
 	done=True
-window.protocol("WM_DELETE_WINDOW", quit_me)
 
+main()
 
-
-window.mainloop()
-
+# https://stackoverflow.com/questions/3702675/catch-and-print-full-python-exception-traceback-without-halting-exiting-the-prog
 # https://stackoverflow.com/questions/14000944/finding-the-currently-selected-tab-of-ttk-notebook
 # https://stackoverflow.com/questions/16373887/how-to-set-the-text-value-content-of-an-entry-widget-using-a-button-in-tkinter

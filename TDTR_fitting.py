@@ -2988,9 +2988,9 @@ paramAliases={"rpu":"rpump", "rpr":"rprobe", "fm":"fm", "fp":"fp", "da":"deposit
 "sphase":"slopedPhaseOffset","phase":"variablePhaseOffset","magnitude":"variableMagnitudeScaling"}
 def setParam(paramName,value,warning=True): # setParam: during fitting, we update things (by name), expect the relevant globals to be updated, and then the model is regenerated (e.g. TDTRfunc generating the TDTR curve), iteratively, until a good fit is achieved. This should handle thermal properties by name (e.g. "Kz2" should update the thermal property matrix ("tp" global) 3rd row 2nd column. "rpu" on the other hand will update the "rpump" global). 
 	# Step 1: 
-	if paramName=="tp":
-		handleTPasString(value)
-		return
+	#if paramName=="tp":
+	#	handleTPasString(value)
+	#	return
 	if isTPparam(paramName):	
 		r,c=getRowCol(paramName)  #to fit "Kz1" -> lookup list "Kzs", and set index 0 (first layer's)
 		tp[r][c]=value
@@ -3073,19 +3073,23 @@ def lookupBounds():
 		bnds[0].append(lb) ; bnds[1].append(ub)
 	return bnds
 
-
-def prettyPrint(pop=True): # TODO: "print("a = %6.2f +/- %4.2f" % (a_opt, Da))" -> "a =   2.02 +/- 0.06" we should take advantage of this
+# TODO: "print("a = %6.2f +/- %4.2f" % (a_opt, Da))" -> "a =   2.02 +/- 0.06" we should take advantage of this
+def prettyPrint(pop=True,printOrReturn="print"): 
 	if pop:
 		popGlos() #populates Cs, Kzs, etcetera. it may have already been done, but it's cheap to redo. TODO?
-	print("  Cs: "+str(Cs)+"\n  Kzs: "+str(Kzs)+"\n  ds: "+str(ds)+"\n  Krs: "+str(Krs)+
-	   "\n  Gs: "+str(Gs)+"\n  (Rs: "+str(Rs)+")\n  f mod,pulse: "+str(fm)+", "+str(fp)+
-	   "\n  r pump,probe: "+str(rpump)+", "+str(rprobe)+" ("+pumpShape+")"+
-	   "\n  tm,tn: "+str(minimum_fitting_time)+", "+str(time_normalize)+
-	   "\n  nmax: "+str(nmax)+
-	   "\n  da,ma,A1,gamma,phase: "+str(depositAt)+", "+str(measureAt)+", "+str(A1)+", "+scientificNotation(gamma)+#", "+scientificNotation(slopedPhaseOffset)+
-	   "\n tofit: "+str(tofit)+"\n fitting: "+str(fitting)+
-	   "\n chopwidth: "+str(chopwidth)+"\n tshift: "+str(tshift)+"\n yshiftPWA: "+str(yshiftPWA))
-	print("ids:",id(Cs),id(Kzs),id(ds),id(Krs),id(Gs))
+	s="  Cs: "+str(Cs)+"\n  Kzs: "+str(Kzs)+"\n  ds: "+str(ds)+"\n  Krs: "+str(Krs)+\
+	   "\n  Gs: "+str(Gs)+"\n  (Rs: "+str(Rs)+")\n  f mod,pulse: "+str(fm)+", "+str(fp)+\
+	   "\n  r pump,probe: "+str(rpump)+", "+str(rprobe)+" ("+pumpShape+")"+\
+	   "\n  tm,tn: "+str(minimum_fitting_time)+", "+str(time_normalize)+\
+	   "\n  nmax: "+str(nmax)+\
+	   "\n  da,ma,A1,gamma,phase: "+str(depositAt)+", "+str(measureAt)+", "+str(A1)+", "+scientificNotation(gamma)+\
+	   "\n tofit: "+str(tofit)+"\n fitting: "+str(fitting)+\
+	   "\n chopwidth: "+str(chopwidth)+"\n tshift: "+str(tshift)+"\n yshiftPWA: "+str(yshiftPWA)+"\n"+\
+	"ids:"+str(id(Cs))+","+str(id(Kzs))+","+str(id(ds))+","+str(id(Krs))+","+str(id(Gs))
+	if printOrReturn=="print":
+		print(s)
+	else:
+		return s
 
 
 def runningAverage(Ys,N):
