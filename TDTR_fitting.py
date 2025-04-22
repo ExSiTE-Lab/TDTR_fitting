@@ -18,8 +18,8 @@
 
 # THERMAL PROPERTIES
 #     C       Kz/G     d         Kr
-tp=[[ 2.42e6, 120.00,  85.49e-9, "Kz" ], # layer 1 (metal coating)
-    [         1/4e9                ], # interface 1
+tp=[[ 2.42e6, 120.00,  80e-9, "Kz" ], # layer 1 (metal coating)
+    [         1/100e6                ], # interface 1
     [ 2.64e6, 35,  1.,       "Kz" ]] # layer 2 (bottom layer)
 #     J/m³/K  W/m⁽²⁾/K m         W/m/K
 
@@ -33,7 +33,7 @@ fm=8.4e6 # moduluation frequency, in Hz
 minimum_fitting_time=200e-12 ; minimum_fitting_frequency=1e1
 maximum_fitting_time=None #60e-12
 time_normalize="3000e-12"
-gamma=1 # power absorbed = P/gamma
+gamma=1. # power absorbed = P/gamma
 useTBR=True
 
 
@@ -280,9 +280,12 @@ def delTomega(omegas,gkomega="",radii="",integration="trapz"):
 		if "ring" in pumpShape:
 			i=np.argmin(np.abs(rs-r1)) ; pu[ct,i]=1/(2*np.pi*r1)/(rs[i]-rs[i-1]) ; ct+=1 # ring heating source, "infinitely thin"
 		elif "offset" in pumpShape:
+			rs=np.linspace(0,xoff+r1*5,1000)
 			print("OFFSET PUMP,PROBE",r1,r2,xoff)
 			#pu[ct,:]=np.exp(-1.*(rs-xoff)**2./(2.*r1**2.)) ; ct+=1
 			pu[ct,:]=np.exp(-2*(rs-xoff)**2/(r1**2)) ; ct+=1
+			#print(np.amax(rs),np.amin(rs),rs)
+			#lplot([rs],[np.exp(-2*(rs-xoff)**2/(r1**2))]) ; return #; sys.exit()
 		pu=[ p*hf for p,hf in zip(pu,hybridFactors) ] ; pu=np.sum(pu,axis=0)
 
 		dr=rs[1]-rs[0]
@@ -304,7 +307,7 @@ def delTomega(omegas,gkomega="",radii="",integration="trapz"):
 	return delTr+delTi # [ ω, (r) ]
 # END: ΔT𝘴𝘶𝘳𝘧𝘢𝘤𝘦(ω)=A₁/2*π ∫ k*Ĝ(k,ω)*exp(-k²*(rᵣ²+rᵤ²)/8)*dk ; from 0 to ∞ #Schmidt eq 8
 
-depositAt=0 ; measureAt=0 ; alpha=0 # BIDIRECTIONAL: PROBING AND HEATING LOCATION NOT NECESSARILY SAME AS MEASUREMENT LOCATION
+depositAt=0.0 ; measureAt=0.0 ; alpha=0.0 # BIDIRECTIONAL: PROBING AND HEATING LOCATION NOT NECESSARILY SAME AS MEASUREMENT LOCATION
 # The following is always true for a given layer:			
 # | T𝑏𝑎𝑐𝑘𝑠𝑖𝑑𝑒 | = | A B | | T𝑠𝑢𝑟𝑓𝑎𝑐𝑒 | per Jiang eq 2.8	-->	In normal TDTR, we can use an adiabatic backside boundary condition: Q𝑏𝑎𝑐𝑘𝑠𝑖𝑑𝑒=0
 # | Q𝑏𝑎𝑐𝑘𝑠𝑖𝑑𝑒 |   | C D | | Q𝑠𝑢𝑟𝑓𝑎𝑐𝑒 | or / Schmidt eq 6	       which yields T𝑠𝑢𝑟𝑓𝑎𝑐𝑒=-D/C*Q𝑠𝑢𝑟𝑓𝑎𝑐𝑒  via the second equation left bottom.
@@ -3262,6 +3265,7 @@ def genContour3D(fileIn,fileOut='',paramRanges='',paramResolutions='',overwrite=
 		return filesOut
 
 	fileOut,paramRanges,paramResolutions=contourDefaults(fileIn,fileOut,paramRanges,paramResolutions,{"func":solve,"kwargs":{}})
+	conditionalPrint("generateHeatmap","run settings: "+str(fileOut)+" ; "+str(paramRanges)+" ; "+str(paramResolutions))
 	if not overwrite and os.path.exists(fileOut+"_0"):
 		warn("generateHeatmap","overwrite=False and fileOut exists, skipping generations")
 		return fileOut
@@ -3327,8 +3331,9 @@ def genContour2D(fileIn,fileOut='',paramRanges='',paramResolutions='',overwrite=
 	#file_s=fileIn[:]
 	#if isinstance(fileIn,list):
 	#	fileIn=fileIn[0]
-
+	conditionalPrint("generateHeatmap","run settings: "+str(fileOut)+" ; "+str(paramRanges)+" ; "+str(paramResolutions))
 	fileOut,paramRanges,paramResolutions=contourDefaults(fileIn,fileOut,paramRanges,paramResolutions,solveFunc)
+	conditionalPrint("generateHeatmap","run settings: "+str(fileOut)+" ; "+str(paramRanges)+" ; "+str(paramResolutions))
 	if not overwrite and os.path.exists(fileOut):
 		warn("generateHeatmap","overwrite=False and fileOut exists, skipping generations")
 		return fileOut
@@ -4294,6 +4299,7 @@ def makeSyntheticDataset(fout,addedNoise=0):
 # why the re-write of this entire chain? it makes preductUncert much *much* cleaner when trying your "atypical" stuff like mfSSTR or SSTR+TDTR (predictUncert's "settables" ought to handle it all)
 def predictUncert(settables="",addedNoise=0.0,regen=True,threshold=.025,nworkers=3,subdir="tdtrcache",npts=100,ranges=""):
 	settables=dict(settables) # DICT IN ARG DEFAULTS MEANS DICT CONTENTS ARE KEPT BETWEEN RUNS, AND YOU CAN'T RERUN FOR DIFFERENT MODES!!!
+	conditionalPrint("predictUncert","passed settables: "+str(settables))
 	# default to current mode if no settables passed
 	global mode
 	if "mode" not in settables.keys():
@@ -4325,7 +4331,7 @@ def predictUncert(settables="",addedNoise=0.0,regen=True,threshold=.025,nworkers
 		ranges=[v*.25,v*1.75]
 
 	valRange,fout=measureContour1Axis(fnames, p, plotting="savefinal", resolution=npts, ranges=ranges, extend=False, threshold=threshold, nworkers=nworkers, solveFunc=solver,overwrite=regen)	# mC1A > solve > various depending on mode
-	return valRange
+	return valRange,fnames
 
 # loosely based on testing68.py. we revamped preductUncert to accept a dict of "settables" which we use to generate our fake data file(s), and then run solve or ss2 accordingly. ss2
 def whichTechniqueShouldIUse(threshold): # TODO use caution when calling and re-calling this function. gui.py is allowed to, since all relevant globals will be reset on the next run, BUT, as it stands, some settables will faff up others
