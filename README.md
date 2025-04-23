@@ -1,4 +1,4 @@
-This is a python code package for analyzing Time Domain Thermoreflectance (TDTR) data, based on the analytical model from Cahill 2004 (a copy of which is available in the References folder). The math is the same for Frequency Domain Thermoreflectance (FDTR, Schmidt 2009), Steady State Thermoreflectance (SSTR, Braun 2019), and Square Pulse Thermoreflectance (SPTR, Wang 2022). 
+This is a python code package for analyzing thermoreflectance data. The code is based on the analytical model from Cahill 2004 (a copy of which is available in the References folder). The math is the same between (and there is support for) Time Domain Thermoreflectance (TDTR, Cahill 2004), Frequency Domain Thermoreflectance (FDTR, Schmidt 2009), Steady State Thermoreflectance (SSTR, Braun 2019), and Square Pulse Thermoreflectance (SPTR, Wang 2022). 
 
 This code comes in two parts: 
 - TDTR_fitting.py - contains all the required functions (analytical model solved in Fourier space, functions which generate the model curve for each measurement type, fitting functions, sensitivity analysis, monte carlo uncertainty, contour analysis)
