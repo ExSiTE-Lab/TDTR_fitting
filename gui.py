@@ -1,11 +1,15 @@
+# v0.77 (goes with 0.167)
+import matplotlib,time,datetime,threading,os,sys
 import tkinter as tk
+import multiprocessing ; multiprocessing.freeze_support() # https://stackoverflow.com/questions/32672596/pyinstaller-loads-script-multiple-times
+from tkinter import filedialog,ttk
 from tkinter import *
-from tkinter import ttk
-#import sys ; sys.path.insert(1,"../")
-from TDTR_fitting import *
-import datetime,traceback
+import tkinter.font as tkf
 from matplotlib.backends.backend_tkagg import (FigureCanvasTkAgg, NavigationToolbar2Tk)
 matplotlib.use("TkAgg")
+from TDTR_fitting import *
+matplotlib.use("svg") # needed for windows apparently...idk why i commented it out before. https://github.com/pyinstaller/pyinstaller/issues/6760 says you'll get a "ModuleNotFoundError: No module named 'matplotlib.backends.backend_svg'" with pyinstaller-compiled (but not running python on windows)
+#import time,threading,os,sys
 
 # THIS IS AN ATTEMPT AT A TOTALLY-REVAMPED GUI. TABS FOR MEASUREMENT TECHNIQUES, ETC
 # I will still use this basic layout:
@@ -356,7 +360,7 @@ def updateAllGlobalsFromFields(tab):
 		else:
 			print("setVar",glo,val)
 			setVar(glo,val)
-		print("SET GLO",tab,glo,val,type(val))
+		print("SET GLO","'"+str(tab)+"'","'"+str(glo)+"'","'"+str(val)+"'",type(val))
 
 def writeSettingsToLog(tabNames):
 	# save off settings: wrapper() writes "settings: " with localVars and pulled-in values for glos in globalLookup. resume() read in these dicts (as text) and restores them! special processing is required for 1D lists (e.g. "verbose") and 2D lists (e.g. "tp")
@@ -455,6 +459,7 @@ def resume():
 			#break
 		if ( not foundfiles) and len(lines[i])>10 and lines[i][:7]=="files:[":
 			files=lines[i].replace("'","").split("[")[1].split("]")[0].split(",")
+			files=[ f.strip() for f in files ] # strip required or spaces in printed list mess us up
 			print("FOUND FILES LINE:",files)
 			foundfiles=True
 		if foundtp and foundfiles:
@@ -479,6 +484,7 @@ def wrapper(func): # https://www.geeksforgeeks.org/function-wrappers-in-python/
 		writeSettingsToLog(tabsSorted)
 		writeToLogFile("running:"+str(func))
 		window.title("TDTR fitting! - RUNNING") ; window.update()
+		printtp()
 		#window.configure(highlightbackground="blue",highlightthickness=10) ; window.update()
 		try:
 			func(*args,**kwargs)
