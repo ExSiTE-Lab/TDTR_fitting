@@ -740,12 +740,16 @@ def processAllMultiFields(exitOn="files"):
 	# first pass, detect what globals the user has requestd
 	for glos in magic:
 		for glovar in glos.split(","):				# "gamma=1,fm=1000" --> ["gamma=1","fm=1000"]
+			if "=" not in glovar:
+				continue
 			glo,var=glovar.strip().split("=")		# ["gamma","1"]
 			if glo not in settables.keys():
 				settables[glo]=[ getVar(glo) for i in range(len(types)) ]	# default with current value
 	# second pass, set whatever the user has requested
 	for i,glos in enumerate(magic):
 		for glovar in glos.split(","):
+			if "=" not in glovar:
+				continue
 			glo,var=glovar.strip().split("=")
 			settables[glo][i]=type(settables[glo][i])(var)
 	return files,settables
