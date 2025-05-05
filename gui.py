@@ -95,7 +95,7 @@ for i,word in enumerate(words):
 		line=[]
 # add "header" buttons and labels
 elements_multifitting=elements_multifitting+[
- [ "btn;Fit Data;simult"          , "btn;hypothetical;hypothetical", "btn;2D Contour;cont2DSimult" , "" ],
+ [ "btn;Fit Data;simult"          , "btn;hypothetical;hypothetical", "btn;2D Contour;cont2DSimult" , "btn;Perturb Unc.;pertUncSimult" ],
  [ "" , "label;file name" , "label;meas. type" , "label; custom glos" ]]
 # programatically add rows of file-select buttons and entry fields, TDTR/FDTR/SSTR dropdowns, global-setting entry fields
 elements_multifitting=elements_multifitting+\
@@ -531,10 +531,10 @@ def matImport(event): # was "runMatImport"
 	importMatrix(str(files[0]))	# load the thermal properties
 	updateAllFieldsFromGlobals()	# update them (and others) in the GUI
 
-files=[] ; lastResult=[]
+files=[] ; lastResult=[] #; lastRun=""
 @wrapper
 def solving(event,askForFiles=True): # was "runSolve"
-	global files,lastResult
+	global files,lastResult #,lastRun ; lastRun="solve"
 	if askForFiles:
 		files=ask()
 	if len(files)==0:
@@ -575,8 +575,8 @@ def pertUnc(event): # was "runPerturbing"
 		perturb=perturb.split(",")
 	perturbBy=perturbBy.split(",") ; perturbBy=[float(pb) for pb in perturbBy]
 
-	#if lastrun=="simult":
-	#	solveFunc={"func":ss2,"kwargs":{"listOfTypes":ss2t}} ; loopOver=[ss2f]
+	#if lastRun=="simult":
+	#	solveFunc={"func":ss2,"kwargs":{"listOfTypes":simultTypes}} ; loopOver=[filesSimult]
 	#else:
 	solveFunc={"func":solve,"kwargs":{}} ; loopOver=files
 	r,e=[],[]
@@ -595,7 +595,32 @@ def pertUnc(event): # was "runPerturbing"
 		r=np.mean(r,axis=0) ; e=np.mean(e,axis=0)
 		resultString=" , ".join([p+" = "+sigFigs(v*getScaleUnits(p)[0])+"+/-"+sigFigs(dv)+" "+getScaleUnits(p)[1] for p,v,dv in zip(getVar("tofit"),r,e) ])
 		printToResultsPanel("averaged:")
-		printToResultsPanel(resultString)	
+		printToResultsPanel(resultString)
+
+@wrapper
+def pertUncSimult(event): # was "runPerturbing"
+	perturb=localVars["l_pertparams"] 
+	perturbBy=localVars["l_pertby"]
+	if perturb=="all":
+		perturb=""
+	else:
+		perturb=perturb.split(",")
+	perturbBy=perturbBy.split(",") ; perturbBy=[float(pb) for pb in perturbBy]
+
+	files,settables=processAllMultiFields(exitOn="globals")
+	# For solving, we would run: r,e=ss2(files,types,plotting="save",settables=settables), so these kwargs need to be set up
+	kwargs={"listOfTypes":settables["mode"],"settables":settables}
+	solveFunc={"func":ss2,"kwargs":kwargs}
+	r,e=[],[]
+	s,u,params=perturbUncertainty(files,paramsToPerturb=perturb,perturbBy=perturbBy,plotting="save",solveFunc=solveFunc) #,paramsToPerturb=paramsToPerturb,perturbBy=perturbBy)
+	#print("s,u,params",s,u,params)
+	for P,dP,dR in params:
+		resultString="perturb "+P+" by "+str(dP)+"% --> "+",".join( ["d"+p+"="+sigFigs(v,4) for p,v in zip(getVar("tofit"),dR) ] )
+		printToResultsPanel(resultString)
+#		print(P,dP,dR)
+	resultString=" , ".join([p+" = "+sigFigs(v*getScaleUnits(p)[0])+"+/-"+sigFigs(dv*getScaleUnits(p)[0])+" "+getScaleUnits(p)[1] for p,v,dv in zip(getVar("tofit"),s,u) ])
+	printToResultsPanel(resultString)
+	r.append(s) ; e.append(u)
 
 @wrapper
 def fastCont(event): # was "runContour"
@@ -756,8 +781,10 @@ def processAllMultiFields(exitOn="files"):
 
 @wrapper
 def simult(event):
+	#global lastRun ; lastRun="simultaneous"
 	files,settables=processAllMultiFields(exitOn="files") ; types=settables["mode"]
 	global filesSimult ; filesSimult=files
+	#global simultTypes ; simultTypes=types
 	writeToLogFile("files:"+str(files)+","+str(types))
 	r,e=ss2(files,types,plotting="save",settables=settables)
 	global lastResult ; lastResult=r

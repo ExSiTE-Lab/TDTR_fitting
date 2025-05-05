@@ -3787,8 +3787,12 @@ def perturbUncertainty(fileToRead,paramsToPerturb='',perturbBy='',plotting="none
 	#    in gamma as an additional perturbable parameter. e.g. if Kz2
 	#    affects gamma by 5%, R1 affects gamma by 7%, then the independent 
 	#    uncertainty of gamma is 8.6%
-	# READ IN PSUEDO-DEPENDENT PARAMETERS. 
-	paramsfile=fileToRead.split("/") ; paramsfile[-1]="dependentParams.txt" ; paramsfile="/".join(paramsfile)
+	# READ IN PSUEDO-DEPENDENT PARAMETERS.
+	if isinstance(fileToRead,list):
+		paramsfile=fileToRead[0].split("/")
+	else:
+		paramsfile=fileToRead.split("/")
+	paramsfile[-1]="dependentParams.txt" ; paramsfile="/".join(paramsfile)
 	dependentParams={} ; independentParams={}
 	if os.path.exists(paramsfile):
 		lines=open(paramsfile).readlines()
