@@ -111,7 +111,9 @@ elements_multifitting=elements_multifitting+\
 elements_other=[
  [ "btn;T(r,z);runTRZ" , "drop;T(r,z) mode;X,M,gen-gif,play-gif,T(t=0 z=0 r),T(t z=0 r=0),T(t z=0 irpr);l_Trzopt",  "en;Pu Power (W);Pow" , ""      ], 
  [ "en;verbose funcs;verbose;format1DList","","en;verbose funcs;verbose;format1DList" , "drop;restore settings;yes,no;l_restore" ],
- [ "en;pu depth (m);depositAt", "en;pr depth (m);measureAt","drop;pu profile;gaussian,gaussian,gaussian_numerical,tophat,ring,ring_numerical,offset;pumpShape","en;pr offset (m);xoff"]]
+ [ "en;pu depth (m);depositAt", "en;pr depth (m);measureAt","drop;pu profile;gaussian,gaussian,gaussian_numerical,tophat,ring,ring_numerical,offset;pumpShape","en;pr offset (m);xoff"],
+ [ "drop;auto rpr;yes,no;autorpr;ynbool","drop;auto rpu;yes,no;autorpu;ynbool","drop;autofm;yes,no;autofm;ynbool","drop;use TBR;yes,no;useTBR;ynbool"],
+]
 
 #buttonTitles=["Import Vals", "Fit Data", "Perturb Unc.", "Fast Contour", "Contours2D" ,"T(r,z)" ,"Sensitivity", "View Map", "(refit)", 
 #	"(phase)" , "avg files", "fibercals"]
@@ -340,7 +342,7 @@ def updateAllFieldsFromGlobals():
 			else:
 				val=str(val)					# OR, just convert to string if no special function
 			globalLookup[tab][glo].set(val)				# and set the corrosponding gui entry object
-			print("FOUND GLO",tab,glo,val,type(val))
+			print("RETREIVE TDTRFITTNG GLO",tab,glo,val,type(val))
 
 def updateAllGlobalsFromFields(tab):
 	global localVars
@@ -360,7 +362,7 @@ def updateAllGlobalsFromFields(tab):
 		else:
 			print("setVar",glo,val)
 			setVar(glo,val)
-		print("SET GLO","'"+str(tab)+"'","'"+str(glo)+"'","'"+str(val)+"'",type(val))
+		print("SET GLO FROM FIELD","'"+str(tab)+"'","'"+str(glo)+"'","'"+str(val)+"'",type(val))
 
 def writeSettingsToLog(tabNames):
 	# save off settings: wrapper() writes "settings: " with localVars and pulled-in values for glos in globalLookup. resume() read in these dicts (as text) and restores them! special processing is required for 1D lists (e.g. "verbose") and 2D lists (e.g. "tp")
@@ -381,6 +383,7 @@ def resume():
 		return
 	lines=open("gui.log").readlines() ; foundtp=False ; foundfiles=False
 	for i in reversed(range(len(lines))):
+		print(i,lines[i])
 		# wrapper() writes "settings: " with localVars and pulled-in values for glos in globalLookup. resume() read in these dicts (as text) and restores them! special processing is required for 1D lists (e.g. "verbose") and 2D lists (e.g. "tp")
 		if ( not foundtp ) and len(lines[i])>10 and lines[i][:10]=="settings: ":
 			print("FOUND SETTINGS LINE")
@@ -406,7 +409,9 @@ def resume():
 						oldval=localVars[glo]			# retrieve existing value (locals)
 					else:
 						oldval=getVar(glo)			# OR, retrieve existing value (TDTR globals)
-					print("set",glo,val,oldval)
+					print("flag",glo,val,"( was:",oldval,")")
+					if isinstance(oldval,bool): # fun! the code: bool("False") returns True! since it treats "False" as just a string, which is treated as True (unless empty)
+						val=( "True" in val )
 					val=type(oldval)(val)
 				settings[glo]=val
 			foundtp=True
@@ -415,8 +420,10 @@ def resume():
 			for glo in settings.keys():
 				print("glo",glo,settings[glo],type(settings[glo]))
 				if "l_" in glo:
+					print("SET FROM LOG: localVars",glo,"=",settings[glo])
 					localVars[glo]=settings[glo]
 				else:
+					print("SET FROM LOG: setVar",glo,settings[glo])
 					setVar(glo,settings[glo])
 			#if "'l_restore': 'yes'" not in lines[i]:
 			#	return
@@ -541,6 +548,9 @@ def solving(event,askForFiles=True): # was "runSolve"
 		return
 	results=[]
 	writeToLogFile("files:"+str(files))
+	# TDTR_fitting.py > solve() > solveTDTR() > resultsPlotter() > if "gui" in stack, useLast=True > lplot() > if useLast, append new datasets to globals plotXs, plotYs, etc
+	for k in ["plotXs","plotYs","plotLabels","plotMarkers"]: # TODO WE DIDN'T DO THESE SHENAIGANS IN THE OLD GUI. WHY DO WE NEED IT NOW? (currently needed to prevent adding curves to an old plot
+		setVar(k,[]) 
 	for f in files:
 		res,err=solve(f,plotting="save")
 		#print(res,err)
@@ -839,6 +849,7 @@ def updatePlot(whatWasRunning):
 	liveplot["canvas"].get_tk_widget().pack(fill='both',expand=True)
 	window.update() # problem with start_event_loop, it takes control over the main loop from tkinter! but this (https://matplotlib.org/stable/api/backend_bases_api.html#matplotlib.backend_bases.FigureCanvasBase.draw_idle) says we "redraw once control returns to the GUI event loop", so how do we do that without stealing? just update the window mainloop.
 #def updatePlot(funcName,fig=None,ax=None):
+
 
 def printToResultsPanel(printstring): # previously "out()"
 	te_res.insert(tk.END,printstring+"\n")	# write to results Text field, including a new line
