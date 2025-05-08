@@ -84,6 +84,19 @@ elements_SSTR=[
  [  "en;pump rad (um);rpu;conv2um" , "en;probe rad (um);rpr;conv2um" , "en;f mod (Hz);fm"        ,         "en;gamma;gamma"      ],
  [ "en;pert. params;l_pertparams",     "en;pert. by;l_pertby"    , "en;cont. val (%);l_contval" ,               ""               ]]
 
+elements_FDTR=[ 
+ [  "btn;Import Vals;matImport"  ,    "btn;Fit Data;solving"     ,       "btn;refit;refit"       ,   "btn;avg files;avgFiles"    ],
+ [  "btn;Perturb Unc.;pertUnc"   ,  "btn;Fast Contour;fastCont"  ,    "btn;2D Contour;cont2D"    ,   "btn;Sensitivity;runSens"   ],
+ [ "text;"+tpHeader+";tp;formatTP" ,             ""              ,              ""               ,              ""               ], 
+ [              ""               ,               ""              ,              ""               ,              ""               ], 
+ [              ""               ,               ""              ,              ""               ,"text;"+tpHeader+";tp;formatTP"],
+ [     ""     ,  "entry;fitting params;tofit;formatParamNames"   ,  "entry;fitting params;tofit;formatParamNames"   ,     ""     ],
+ [  "en;pump rad (um);rpu;conv2um" , "en;probe rad (um);rpr;conv2um" ,  "en;f mod (Hz);fm"       ,"drop;P/M/X/Y;P,M,X,Y;fitting" ],
+ [  "en;fpulse (Hz);l_fp" , "en;time delay (s);minimum_fitting_time","","" ],
+ [ "label;uncommon settings"     ,               ""              ,              ""               ,              ""               ], 
+ [ "en;pert. params;l_pertparams",     "en;pert. by;l_pertby"    , "en;cont. val (%);l_contval"  , "en;cont. param;l_contparam"  ]]
+
+
 mfinstruct="Set your thermal properties on the TDTR tab. For each line below, enter the experiment type from the dropdown, select a file, and enter any additional parameters in the remaining field, comma-separated. e.g. a multi-frequency experiment might have: fm=1000,gamma=2.4e4, and on a separate line: fm=10e6,gamma=2.8e4. Hybrid fitting of SSTR+TDTR might have: fm=8.4e6,rpu=10e-6,rpr=5e-6 on the TDTR line, and fm=1000,rpu=1.4e-6,rpr=1.6e-6 on the SSTR line"
 # programmatically break up instructions into single-line labels on multiple rows
 elements_multifitting=[] ; line=[] ; words=mfinstruct.split()
@@ -101,7 +114,7 @@ elements_multifitting=elements_multifitting+[
 elements_multifitting=elements_multifitting+\
 [ [ "btn;file "+str(i+1)+";aFTSB"+str(i+1) , 
 	"enno;filename;l_simultFile"+str(i+1) , 
-		"dropno;mode;TDTR,SSTR,FDTR,PWA;l_simultMode"+str(i+1) , 
+		"dropno;mode;TDTR,SSTR,FDTR,pFDTR,PWA;l_simultMode"+str(i+1) , 
 			"enno;glos;l_simultGlos"+str(i+1) ] for i in range(10) ]
 # localVar entries are added programmatically too (and duplicates of the addFileToSimultTab function) near where simult() is declared
 
@@ -163,7 +176,7 @@ def main():
 	#		frame.configure(highlightbackground=colors[i],highlightthickness=10)
 
 	# even if a tab is currently empty, pass it an empty list (which populates globals)
-	processElementLists(tabTitles,[elements_TDTR,elements_SSTR,[],[],elements_multifitting,elements_other]) 
+	processElementLists(tabTitles,[elements_TDTR,elements_SSTR,elements_FDTR,[],elements_multifitting,elements_other]) 
 	resume()
 
 	window.protocol("WM_DELETE_WINDOW", quit_me)
@@ -328,7 +341,7 @@ def formatParamNames(val,whichWay="format"):
 # this links global names (from TDTR_fitting) to tk objects
 globalLookup={}			# tabName={tdtrGloName:guiEntryOrDropdownObj}
 globalSpecialHandling={}	# tabName={tdtrGloName:customConverterFunc}
-localVars={"l_pertparams":"all","l_pertby":"5","l_contval":"2.5","l_contparam":"Kz2","l_restore":"yes","l_Trzopt":"M"}	# localVarName:val
+localVars={"l_pertparams":"all","l_pertby":"5","l_contval":"2.5","l_contparam":"Kz2","l_restore":"yes","l_Trzopt":"M","l_fp":"CW"}	# localVarName:val
 def updateAllFieldsFromGlobals():
 	for tab in globalLookup.keys():
 		for glo in globalLookup[tab].keys():				# e.g. "rpu" as a string
@@ -487,6 +500,10 @@ def wrapper(func): # https://www.geeksforgeeks.org/function-wrappers-in-python/
 		# update mode
 		if tabName in ["TDTR","FDTR","SSTR","PWA"]:
 			setParam("mode",tabName)
+		if tabName=="FDTR":
+			if localVars["l_fp"].strip().lower()!="cw":
+				setParam("mode","pFDTR")
+				setVar("fp",float(localVars["l_fp"]))
 		# save off current state
 		writeSettingsToLog(tabsSorted)
 		writeToLogFile("running:"+str(func))

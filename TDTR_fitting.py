@@ -1359,21 +1359,33 @@ def FDTRfunc(fs,*parameterValues,store=False,addNoise=False,whackyFunc=None,retu
 		#return Zs
 		# METHOD 2, DO IT OURSELVES
 		#return np.asarray(Zs)
-		for f in fs:
-			conditionalPrint("FDTRfunc","calculating frequency: "+str(f))
-			ns=np.arange(nmin,nmax+1)			# used for summing over many frequencies
-			omegas=2*np.pi*f+ns*omegaP 			# [ ωₙ ] , 1D list of ω=ωₘ+n*ωₚ values to pass into ΔT(ω). 
-			delTplus=delTomega(omegas) ; ts=np.asarray([minimum_fitting_time])
-			#conditionalPrint("TDTRfunc","using parameters:",pp=True)
-			convergeAccelerator=np.exp(-pi*ns**2./nmax**2.)	# [ ωₙ ], each n represents a frequency, Cahill eq 20+, exp(-πf²/fₘₐₓ²)
-			#Z(t𝘥)= Σ ΔT(ωₘ+n*ωₚ)*exp(i*n*ωₚ*t𝘥) #from -∞ to ∞, Jiang eq 2.21/2.22 (modified) / Schmidt eq 2. 
-			sumbits=delTplus[None,:]*np.exp(1j*omegaP*np.outer(ts,ns))[:,:]*convergeAccelerator[None,:] # [ t, ωₙ ]
-			z=np.sum(sumbits,axis=1) # [ t ], sum over all ωₙ 
-			#Note that while Jiang states Vᵢₙ(t𝘥)=½Σ(ΔT(ωₘ+n*ωₚ)+ΔT(-ωₘ+n*ωₚ))*exp(i*n*ωₚ*t𝘥) and Vₒᵤₜ(t𝘥)=-i*½Σ(ΔT(ωₘ+n*ωₚ)-ΔT(-ωₘ+n*ωₚ))*exp(i*n*ωₚ*t𝘥), simply taking the real and imaginary parts of ΣΔT(ωₘ+n*ωₚ)*exp(i*n*ωₚ*t𝘥) yields the same result. 
-			#Vᵢₙ(t𝘥)  = Re(Z(ω)) , Vₒᵤₜ(t𝘥) = Im(Z(ω))							#Jiang eq 2.21/2.22 (modified) 
-			#xs=z.real ; ys=z.imag
-			Zs.append(z[0])
-		Zs=np.asarray(Zs) ; print("pulsed Zs",np.shape(Zs))
+		#for f in fs:
+		#	conditionalPrint("FDTRfunc","calculating frequency: "+str(f))
+		#	ns=np.arange(nmin,nmax+1)			# used for summing over many frequencies for pulsed signal (pulse is treated as fourier series)
+		#	omegas=2*np.pi*f+ns*omegaP 			# [ ωₙ ] , 1D list of ω=ωₘ+n*ωₚ values to pass into ΔT(ω). 
+		#	delTplus=delTomega(omegas) ; ts=np.asarray([minimum_fitting_time])
+		#	#conditionalPrint("TDTRfunc","using parameters:",pp=True)
+		#	convergeAccelerator=np.exp(-pi*ns**2./nmax**2.)	# [ ωₙ ], each n represents a frequency, Cahill eq 20+, exp(-πf²/fₘₐₓ²)
+		#	#Z(t𝘥)= Σ ΔT(ωₘ+n*ωₚ)*exp(i*n*ωₚ*t𝘥) #from -∞ to ∞, Jiang eq 2.21/2.22 (modified) / Schmidt eq 2. 
+		#	sumbits=delTplus[None,:]*np.exp(1j*omegaP*np.outer(ts,ns))[:,:]*convergeAccelerator[None,:] # [ t, ωₙ ]
+		#	z=np.sum(sumbits,axis=1) # [ t ], sum over all ωₙ 
+		#	#Note that while Jiang states Vᵢₙ(t𝘥)=½Σ(ΔT(ωₘ+n*ωₚ)+ΔT(-ωₘ+n*ωₚ))*exp(i*n*ωₚ*t𝘥) and Vₒᵤₜ(t𝘥)=-i*½Σ(ΔT(ωₘ+n*ωₚ)-ΔT(-ωₘ+n*ωₚ))*exp(i*n*ωₚ*t𝘥), simply taking the real and imaginary parts of ΣΔT(ωₘ+n*ωₚ)*exp(i*n*ωₚ*t𝘥) yields the same result. 
+		#	#Vᵢₙ(t𝘥)  = Re(Z(ω)) , Vₒᵤₜ(t𝘥) = Im(Z(ω))							#Jiang eq 2.21/2.22 (modified) 
+		#	#xs=z.real ; ys=z.imag
+		#	Zs.append(z[0])
+		#Zs=np.asarray(Zs) ; print("pulsed Zs",np.shape(Zs))
+		# METHOD 3, CAN METHOD 2 BE RESTRUCTURED TO DO ALL FREQUENCIES IN PARALLEL? YES! 
+		ns=np.arange(nmin,nmax+1)			# used for summing over many frequencies for pulsed signal (pulse is treated as fourier series)
+		omegas=2*np.pi*fs[:,None]+ns[None,:]*omegaP 	# [ fm, ωₙ ] , 1D list of ω=ωₘ+n*ωₚ values to pass into ΔT(ω). 
+		nf=len(fs) ; nn=len(ns)
+		omegas=omegas.reshape((nf*nn,1))		# [ fm, ωₙ ] --> flattened into a list of ω, to pass through delTomega
+		delTplus=delTomega(omegas)
+		delTplus=delTplus.reshape((nf,nn))		# unflatten --> [ fm, ωₙ ]
+		ts=minimum_fitting_time
+		convergeAccelerator=np.exp(-pi*ns**2./nmax**2.)	# [ ωₙ ], each n represents a frequency, Cahill eq 20+, exp(-πf²/fₘₐₓ²)
+		# Z(t𝘥)= Σ ΔT(ωₘ+n*ωₚ)*exp(i*n*ωₚ*t𝘥) #from -∞ to ∞, Jiang eq 2.21/2.22 (modified) / Schmidt eq 2. 
+		sumbits=delTplus[:,:]*np.exp(1j*omegaP*ts*ns[None,:])*convergeAccelerator[None,:] # [ fm, ωₙ ]
+		Zs=np.sum(sumbits,axis=1) # [ fm ], sum over all ωₙ 
 	else:
 		conditionalPrint("FDTRfunc","(CW)")
 		omegas=2*np.pi*fs
@@ -4290,7 +4302,8 @@ def makeSyntheticDataset(fout,addedNoise=0):
 	# cycle through (potentially multiple) files to generate
 	x_dict={"TDTR":np.logspace(np.log(300e-12)/np.log(10),np.log(synetheticMaxTDTR)/np.log(10),30) ,
 		"SSTR":np.linspace(getVar("Pow")/100,getVar("Pow"),30) , 
-		"FDTR":np.logspace(2,syntheticMaxFDTR,100) , 
+		"FDTR":np.logspace(2,syntheticMaxFDTR,100) ,
+		"pFDTR":np.logspace(2,syntheticMaxFDTR,100) , 
 		"PWA":np.linspace(0,1/fm,1024,endpoint=False) }
 	xs=x_dict[mode]
 	conditionalPrint("makeSyntheticDataset","saving to file: "+fout)
