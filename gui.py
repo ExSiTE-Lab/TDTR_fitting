@@ -108,7 +108,8 @@ for i,word in enumerate(words):
 		line=[]
 # add "header" buttons and labels
 elements_multifitting=elements_multifitting+[
- [ "btn;Fit Data;simult"          , "btn;hypothetical;hypothetical", "btn;2D Contour;cont2DSimult" , "btn;Perturb Unc.;pertUncSimult" ],
+ [ "btn;Fit Data;simult"          , "btn;Clear fields;clearMultiFields" , "btn;hypothetical;hypothetical" , "" ],
+ [ "btn;Perturb Unc.;pertUncSimult" , "btn;Fast Contour;fastContSimult" , "btn;Stack 2D Cont.;cont2DSimult" , "btn;Simult. 2D;cont3DFlatSimult" ],
  [ "" , "label;file name" , "label;meas. type" , "label; custom glos" ]]
 # programatically add rows of file-select buttons and entry fields, TDTR/FDTR/SSTR dropdowns, global-setting entry fields
 elements_multifitting=elements_multifitting+\
@@ -122,8 +123,8 @@ elements_multifitting=elements_multifitting+\
 # [ mfinstruct,"","",""],["","","",""],["","","",mfinstruct]]
 
 elements_other=[
- [ "btn;T(r,z);runTRZ" , "drop;T(r,z) mode;X,M,gen-gif,play-gif,T(t=0 z=0 r),T(t z=0 r=0),T(t z=0 irpr);l_Trzopt",  "en;Pu Power (W);Pow" , ""      ], 
- [ "en;verbose funcs;verbose;format1DList","","en;verbose funcs;verbose;format1DList" , "drop;restore settings;yes,no;l_restore" ],
+ [ "btn;T(r,z);runTRZ" , "drop;T(r,z) mode;X,M,gen-gif,play-gif,T(t=0 z=0 r),T(t z=0 r=0),T(t z=0 irpr);l_Trzopt",  "en;Pu Power (W);Pow" , "drop;restore settings;yes,no;l_restore" ],
+ [ "en;verbose funcs;verbose;format1DList","","","en;verbose funcs;verbose;format1DList" , ],
  [ "en;pu depth (m);depositAt", "en;pr depth (m);measureAt","drop;pu profile;gaussian,gaussian,gaussian_numerical,tophat,ring,ring_numerical,offset;pumpShape","en;pr offset (m);xoff"],
  [ "drop;auto rpr;yes,no;autorpr;ynbool","drop;auto rpu;yes,no;autorpu;ynbool","drop;autofm;yes,no;autofm;ynbool","drop;use TBR;yes,no;useTBR;ynbool"],
 ]
@@ -590,7 +591,7 @@ def refit(event):
 def avgFiles(event):
 	files=ask() ; ftypes={"SSTR":"fSSTR","TDTR":"TDTR"} ; ftype=ftypes.get(getVar("mode"),"raw")
 	fo,ig=fileAverager(files,fileType=ftype)
-	out("files averaged, and outputted to: "+fo)
+	printToResultsPanel("files averaged, and outputted to: "+fo)
 
 @wrapper
 def pertUnc(event): # was "runPerturbing"
@@ -666,6 +667,23 @@ def fastCont(event): # was "runContour"
 			"+/-"+str(np.round(errorp*100,1))+"%)")
 
 @wrapper
+def fastContSimult(event): # was "runContour"
+	files,settables=processAllMultiFields(exitOn="files")
+	solvefunc={"func":ss2,"kwargs":{"settables":settables}} #; setVar("ss2Types",ss2t)
+
+	p=localVars["l_contparam"]
+	thresh=float(localVars["l_contval"])
+
+	bnds,fout=measureContour1Axis(files,paramOfInterest=p,plotting="savefinal",resolution=100,threshold=thresh/100,solveFunc=solvefunc)
+
+	error=(bnds[1]-bnds[0])/2 ; errorp=(bnds[1]-bnds[0])/(bnds[1]+bnds[0])
+	#out(p+" : "+str(bnds)+" : +/- "+str(error))
+	fact,unit=getScaleUnits(p)
+	printToResultsPanel(scientificNotation(bnds[0]*fact,2)+" <= "+p+" <= "+scientificNotation(bnds[1]*fact,2)+" "+unit+
+		" (+/-"+scientificNotation(error*fact,2)+" "+unit+" or "+
+		"+/-"+str(np.round(errorp*100,1))+"%)")
+
+@wrapper
 def cont2D(event): # was "runContour2D"
 	pr=[[v*.1,v*2] for v in lastResult ]
 	D="2D"
@@ -674,15 +692,34 @@ def cont2D(event): # was "runContour2D"
 	globstr=files[0].split("/")[:-1] + ["gui.py_","contours","*.txt"] ; globstr="/".join(globstr)
 	displayContour2D(fileOut,plotting="save",threshold=thresh)
 
+# THERE ARE TWO BEHAVIORS TO EXPECTR FROM genContour2D:
+# 1) each file can be treated individually, "solve()" is run for each file to get the residual at each point for that file. this generates N contour plots for N files. If you have 2 fitting parameters, the candidate area is simply the overlap between them.
+# 2) multiple files can be solved simultaneously (calling "ss2()"), to get the worst residual across the files. this generates a single contour plot. If you have 2 fitting parameters, the canndidate area should match the overlapped for methid (1). 
+# if you have more than 2 fitting parameters, we iterate through "all combinations" of the first two, then  solve for the remaining. If you have 3 parameters, this is effectivelly constructing a 3D contour volume, then projecting it down (or flattening it) across the 3rd axis
+# BEWARE: for >2 fitting parameters, (1) yields each file's contour volume projected (if each contour is huge, the projection is huge) whereas (2) yields *only the intersection of the contour volumes* projected. i.e., you will get the projection of the Boolean Union vs Boolean Interesection. YOU SHOULD NOT USE (1) IF YOU HAVE MORE THAN TWO PARAMETERS. 
+# EACH FILE CAN BE TR
 @wrapper
 def cont2DSimult(event): # was "runContour2D"
-	pr=[[v*.1,v*2] for v in lastResult ]
-	print("filesSimult",filesSimult)
-	files,settables=processAllMultiFields(exitOn="globals")
+	pr=[[v*.1,v*3] for v in lastResult ]
+	#print("filesSimult",filesSimult)
+	files,settables=processAllMultiFields(exitOn="files") # e.g. {"mode":[...],"d2":[...],"fitting":[...]}
 	D="2D"
 	thresh=float(localVars["l_contval"])/100
-	fileOut=genContour2D(filesSimult,paramRanges=pr,settables=settables) # generateHeatmap accepts a LIST of files, which it just loops through
+	# genContour2D can take solveFunc={ "func" : solve or ss2, "kwargs" : {dict of kwargs} } and ALSO takes settables=
+	fileOut=genContour2D(files,paramRanges=pr,settables=settables) # generateHeatmap accepts a LIST of files, which it just loops through
 	displayContour2D(fileOut,plotting="save",threshold=thresh) # list -> generateHeatmap -> list -> displayHeatmap also accepts a list (and 
+
+@wrapper
+def cont3DFlatSimult(event): # was "runContour2D"
+	pr=[[v*.1,v*3] for v in lastResult ]
+	#print("filesSimult",filesSimult)
+	files,settables=processAllMultiFields(exitOn="files") # e.g. {"mode":[...],"d2":[...],"fitting":[...]}
+	D="2D"
+	thresh=float(localVars["l_contval"])/100
+	# genContour2D can take solveFunc={ "func" : solve or ss2, "kwargs" : {dict of kwargs} } and ALSO takes settables=
+	fileOut=genContour2D(files,paramRanges=pr,solveFunc={"func":ss2,"kwargs":{"settables":settables}}) # generateHeatmap accepts a LIST of files, which it just loops through
+	displayContour2D(fileOut,plotting="save",threshold=thresh) # list -> generateHeatmap -> list -> displayHeatmap also accepts a list (and 
+
 
 @wrapper
 def runSens(event):
@@ -717,7 +754,7 @@ def runTRZ(event):
 				#img.config(file="guigif/gui"+str(i)+".png")
 				updatePlot("runTRZ")
 				frameR.update()
-			out("find your frames in folder \"guigif\"...")
+			printToResultsPanel("find your frames in folder \"guigif\"...")
 		elif TRZopt=="T(t 0,z 0,r)":
 			lplot([r*1e6], [T[0,0,:]], xlabel="radius (μm)", ylabel="T (K)", title="T(t=0,z=0,r)", labels=[""], markers=["k-"])#,forcedBoundsX=[0,14])
 			updatePlot("runTRZ")
@@ -806,6 +843,11 @@ def processAllMultiFields(exitOn="files"):
 			settables[glo][i]=type(settables[glo][i])(var)
 	return files,settables
 
+def clearMultiFields(event):
+	for i in range(10):
+		localVars["l_simultFile"+str(i+1)]="" ; localVars["l_simultGlos"+str(i+1)]=""
+	updateAllFieldsFromGlobals()
+
 @wrapper
 def simult(event):
 	#global lastRun ; lastRun="simultaneous"
@@ -816,6 +858,8 @@ def simult(event):
 	r,e=ss2(files,types,plotting="save",settables=settables)
 	global lastResult ; lastResult=r
 	printToResultsPanel(str(r)+","+str(e)) # TODO we had a sneaky bug here, where this line crashed with "out(str(r,e))", and we never noticed, because i guess the newWin process crashed, not the main, or something like that (onclick just ended, no problem!) we only noticed because lastSolution wasn't correctly populated. could there be other stuff like this?
+
+
 
 @wrapper
 def hypothetical(event):
@@ -834,7 +878,7 @@ def hypothetical(event):
 setVar("fignames",["gui.png","gui.svg","gui.csv"]) # required to suppress free-floating plot! wild! 
 from matplotlib.figure import Figure
 from niceplot import getPlotObjs ; from nicecontour import getContObjs
-funcsUseContours=["runTRZ","viewMap","runMonte","cont2D","cont2DSimult"]
+funcsUseContours=["runTRZ","viewMap","runMonte","cont2D","cont2DSimult","cont3DFlatSimult"]
 funcsDIY=["runContour2D"]
 liveplot={} ; customPlotted=False
 def updatePlot(whatWasRunning):

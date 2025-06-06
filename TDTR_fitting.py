@@ -2017,7 +2017,7 @@ def ss2(listOfFiles,listOfTypes="",plotting="show",settables="",refit=True,hybri
 
 			solvedParams,parm_cov=curvefit(ss3hwrapped,Xs_flat,np.zeros(len(Xs_flat)),p0=tuple(guesses),bounds=tuple(bnds))
 			sigmas=np.sqrt(np.diag(parm_cov))
-
+			conditionalPrint("ss2","found: "+str(solvedParams))
 		# METHODOLOGY 2: minimize(max(listOfResiduals))	
 		elif hybridMethod=="minmaxres":
 			def ss3hwrapped2(parameterValues):
@@ -2034,9 +2034,12 @@ def ss2(listOfFiles,listOfTypes="",plotting="show",settables="",refit=True,hybri
 
 			solvedParams=lsqout['x']
 			sigmas=np.zeros(len(tofit))
+			conditionalPrint("ss2","found: "+str(solvedParams))
 		elif hybridMethod=="both":
 			ss2(listOfFiles,listOfTypes,"none",settables,refit,hybridMethod="curvecombo")
-			return ss2(listOfFiles,listOfTypes,plotting,settables,refit,hybridMethod="minmaxres")
+			solvedParams,err=ss2(listOfFiles,listOfTypes,plotting,settables,refit,hybridMethod="minmaxres")
+			conditionalPrint("ss2","found: "+str(solvedParams))
+			return solvedParams,err
 	else:
 		solvedParams=[] ; sigmas=[]
 
@@ -3362,7 +3365,7 @@ def genContour2D(fileIn,fileOut='',paramRanges='',paramResolutions='',overwrite=
 
 	def solveResidualOnly(parameterValues,fileIn,ct=[0]):
 		ct[0]+=1
-		conditionalPrint("generateHeatmap","running for parameter combo "+str(tofit[:2])+"="+str(parameterValues)+" - "+str(ct[0]))
+		conditionalPrint("generateHeatmap","running "+str(solveFunc["func"])+" for file(s) "+str(fileIn)+" parameter combo "+str(tofit[:2])+"="+str(parameterValues)+" - "+str(ct[0]))
 		setParams(tofit[:2],parameterValues)
 		r,e=solveFunc["func"](fileIn,plotting="none",**solveFunc["kwargs"])
 		return e[0]
