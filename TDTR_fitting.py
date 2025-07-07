@@ -30,8 +30,8 @@ rprobe=(10.0+10.0)/4.*1e-6
 rpump=(20.0+20.0)/4.*1e-6 
 fp=80e6 # pulse frequency, in Hz (note, this is NOT read from standard data files, but is unlikely to change)
 fm=8.4e6 # moduluation frequency, in Hz
-minimum_fitting_time=200e-12 ; minimum_fitting_frequency=1e1
-maximum_fitting_time=None #60e-12
+minimum_fitting_time=200e-12 ; maximum_fitting_time=None #60e-12
+minimum_fitting_frequency=1e1 ; maximum_fitting_frequency=20e6 # for FDTR 
 time_normalize="3000e-12"
 gamma=1. # power absorbed = P/gamma
 useTBR=True
@@ -1167,16 +1167,19 @@ variablePhaseOffset=np.asarray([0]) # empirical phase offset: conceivably data m
 variableMagnitudeScaling=np.asarray([0])
 def solveFDTR(fileToRead,plotting="show"):
 	global tofit,variablePhaseOffset,variableMagnitudeScaling
-
+	conditionalPrint("solveFDTR","FDTR globals: variablePhaseOffset "+str(variablePhaseOffset)+", variableMagnitudeScaling "+str(variableMagnitudeScaling)+", slopedPhaseOffset "+str(slopedPhaseOffset))
 	#FILE READING
 	fs,phis=readFDTR(fileToRead) #; phis+=variablePhaseOffset
-
+	conditionalPrint("solveFDTR","data: ["+",".join(["["+str(f)+","+str(p)+"]" for f,p in zip(fs,phis)]))
 	#FITTING
 	guesses=getTofitVals() ; bnds=lookupBounds() # guesses come from thermal property matrix, bounds come from ubs / lbs globals
 
 	if tofit==["variablePhaseOffset"] or tofit==["phase"]:
 		conditionalPrint("solveFDTR","FITTING FOR variablePhaseOffset")
 		phi_m=FDTRfunc(fs)
+		if "puph" in fileToRead:
+			conditionalPrint("solveFDTR","LOOKS LIKE WE GOT A PUMP PHASE FILE. SETTING MODEL PHASE TO ZERO")
+			phi_m=np.zeros(len(fs))
 		if doPhaseCorrect:			# this would mean readFDTR would've applied the old offset. so undo it
 			phis-=variablePhaseOffset 	# remove old offset
 		variablePhaseOffset=phi_m-phis		# dϕ(ω)=MODEL-RAW, so next time we load the data: CORRECTED=RAW+dϕ(ω)=MODEL
@@ -1295,7 +1298,8 @@ def readFDTR(filename,returnFull=False):
 			xs=mag*np.cos(phi) ; ys=mag*np.sin(phi)
 	
 	xs=xs[fs>=minimum_fitting_frequency] ; ys=ys[fs>=minimum_fitting_frequency] ; fs=fs[fs>=minimum_fitting_frequency]
-	
+	xs=xs[fs<=maximum_fitting_frequency] ; ys=ys[fs<=maximum_fitting_frequency] ; fs=fs[fs<=maximum_fitting_frequency]
+
 	if doPhaseCorrect:
 		global variablePhaseOffset
 		# look for a dϕ(ω) file:
@@ -1304,6 +1308,7 @@ def readFDTR(filename,returnFull=False):
 		phasefile="/".join(phasefile)
 		if os.path.exists(phasefile):
 			variablePhaseOffset=np.loadtxt(phasefile,delimiter=",")
+			variablePhaseOffset[np.isnan(variablePhaseOffset)]=0
 			conditionalPrint("readFDTR","found phase.txt, reading in. VPO:"+str(variablePhaseOffset))
 		if len(variablePhaseOffset) != len(fs):
 			conditionalPrint("readFDTR","WARNING: length of variablePhaseOffset does not match data. setting to zero")

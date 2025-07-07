@@ -337,7 +337,8 @@ def formatParamNames(val,whichWay="format"):
 	if whichWay=="format":
 		return ",".join(val).replace(" ","")
 	else:
-		return val.replace(" ","").split(",")
+		vals=val.replace(" ","").split(",")
+		return [ v for v in vals if len(v)>1 ]
 
 # this links global names (from TDTR_fitting) to tk objects
 globalLookup={}			# tabName={tdtrGloName:guiEntryOrDropdownObj}
@@ -356,7 +357,7 @@ def updateAllFieldsFromGlobals():
 			else:
 				val=str(val)					# OR, just convert to string if no special function
 			globalLookup[tab][glo].set(val)				# and set the corrosponding gui entry object
-			print("RETREIVE TDTRFITTNG GLO",tab,glo,val,type(val))
+			conditionalPrint("updateAllFieldsFromGlobals","RETREIVE TDTRFITTNG GLO "+str(tab)+" "+str(glo)+" "+str(val)+" "+str(type(val)))
 
 def updateAllGlobalsFromFields(tab):
 	global localVars
@@ -374,9 +375,10 @@ def updateAllGlobalsFromFields(tab):
 		if glo in localVars.keys():
 			localVars[glo]=val					# and update local variable, or globals, with value
 		else:
-			print("setVar",glo,val)
+			conditionalPrint("updateAllGlobalsFromFields","setVar: "+str(glo)+" "+str(val))
 			setVar(glo,val)
-		print("SET GLO FROM FIELD","'"+str(tab)+"'","'"+str(glo)+"'","'"+str(val)+"'",type(val))
+		conditionalPrint("updateAllGlobalsFromFields","SET GLO FROM FIELD '"+str(tab)+"' '"+str(glo)+"' '"+str(val)+"' "+str(type(val)))
+		#print("SET GLO FROM FIELD","'"+str(tab)+"'","'"+str(glo)+"'","'"+str(val)+"'",type(val))
 
 def writeSettingsToLog(tabNames):
 	# save off settings: wrapper() writes "settings: " with localVars and pulled-in values for glos in globalLookup. resume() read in these dicts (as text) and restores them! special processing is required for 1D lists (e.g. "verbose") and 2D lists (e.g. "tp")
