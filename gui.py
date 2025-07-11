@@ -811,7 +811,7 @@ def addFileToSimultTab(event):
 
 for i in range(10):
 	localVars["l_simultFile"+str(i+1)]=""			# a bunch of numbered localVars
-	localVars["l_simultMode"+str(i+1)]="TDTR"
+	localVars["l_simultMode"+str(i+1)]=""
 	localVars["l_simultGlos"+str(i+1)]=""
 	globals()["aFTSB"+str(i+1)]=addFileToSimultTab		# dummy functions as copies of addFileToSimultTab()
 
@@ -847,7 +847,7 @@ def processAllMultiFields(exitOn="files"):
 
 def clearMultiFields(event):
 	for i in range(10):
-		localVars["l_simultFile"+str(i+1)]="" ; localVars["l_simultGlos"+str(i+1)]=""
+		localVars["l_simultFile"+str(i+1)]="" ; localVars["l_simultGlos"+str(i+1)]="" ; localVars["l_simultMode"+str(i+1)]=""
 	updateAllFieldsFromGlobals()
 
 @wrapper

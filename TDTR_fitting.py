@@ -4330,6 +4330,9 @@ def predictUncert(settables="",addedNoise=0.0,regen=True,threshold=.025,nworkers
 	if "mode" not in settables.keys():
 		settables["mode"]=[mode]
 	
+	if os.path.exists(subdir+"/gui.py_"):
+		shutil.rmtree(subdir+"/gui.py_")
+
 	fnames=[subdir+"/predictUncert_"+m+"_"+str(i)+".txt" for i,m in enumerate(settables["mode"])]
 	for i,f in enumerate(fnames):
 		for k in settables.keys():
