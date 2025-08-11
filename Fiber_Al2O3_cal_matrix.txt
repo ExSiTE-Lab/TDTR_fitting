@@ -1,0 +1,4 @@
+	C (J/m³/K)	Kz/G (W/m⁽²⁾/K)	d (m)	Kr (W/m/K)
+L 1:	2.42e6		180.0		80e-9	Kz 		# Al transducer
+I 1:			160e6
+L 2:	3.06e6		35		1	Kz		# Sapphire
