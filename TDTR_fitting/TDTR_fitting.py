@@ -2605,7 +2605,13 @@ def readTDTRdata(filename):
 			rpump=float(dpu)/2*1e-6
 		a=np.zeros(len(ts))+1
 		return ts*1e-12,xs,ys,a
-	
+			
+	if "TAMU" in filename: #these are files made by the old system at TAMU
+		data=np.loadtxt(filename)
+		ts,xs,ys = data[:,1],data[:,2],data[:,3]
+		aux = np.ones(len(ts))# So nothing breaks
+		return ts*1e-12,xs,ys,aux
+
 
 	data=np.loadtxt(filename,skiprows=2)
 	#print(data,np.shape(data))
