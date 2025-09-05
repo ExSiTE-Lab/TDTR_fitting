@@ -1,7 +1,7 @@
 # v0.77 (goes with 0.167)
 import matplotlib,time,datetime,threading,os,sys
 import tkinter as tk
-import multiprocessing ; multiprocessing.freeze_support() # https://stackoverflow.com/questions/32672596/pyinstaller-loads-script-multiple-times
+import multiprocessing #; multiprocessing.freeze_support() # https://stackoverflow.com/questions/32672596/pyinstaller-loads-script-multiple-times
 from tkinter import filedialog,ttk
 from tkinter import *
 import tkinter.font as tkf
@@ -65,6 +65,7 @@ tpHeader="Props: C (J/m3/K) , Kz (W/m/K) , d (m) , Kr (W/m/K)"
 elements_TDTR=[ 
  [  "btn;Import Vals;matImport"  ,    "btn;Fit Data;solving"     ,       "btn;refit;refit"       ,   "btn;avg files;avgFiles"    ],
  [  "btn;Perturb Unc.;pertUnc"   ,  "btn;Fast Contour;fastCont"  ,    "btn;2D Contour;cont2D"    ,   "btn;Sensitivity;runSens"   ],
+ [  "btn;(phase);checkPhase"     ,               ""              ,              ""               ,              ""               ],
  [ "text;"+tpHeader+";tp;formatTP" ,             ""              ,              ""               ,              ""               ], 
  [              ""               ,               ""              ,              ""               ,              ""               ], 
  [              ""               ,               ""              ,              ""               ,"text;"+tpHeader+";tp;formatTP"],
@@ -727,6 +728,13 @@ def cont3DFlatSimult(event): # was "runContour2D"
 def runSens(event):
 	sensitivity()
 
+@wrapper
+def checkPhase(event):
+	if len(files)==0:
+		out("run fitting first")
+		return
+	ts,data=readTDTR(files[-1],plotPhase=True)
+
 # FUNCTION FOR BUTTON WHICH GENERATES T(r,z) PLOT
 @wrapper
 def runTRZ(event):
@@ -811,7 +819,7 @@ def addFileToSimultTab(event):
 
 for i in range(10):
 	localVars["l_simultFile"+str(i+1)]=""			# a bunch of numbered localVars
-	localVars["l_simultMode"+str(i+1)]=""
+	localVars["l_simultMode"+str(i+1)]="TDTR"
 	localVars["l_simultGlos"+str(i+1)]=""
 	globals()["aFTSB"+str(i+1)]=addFileToSimultTab		# dummy functions as copies of addFileToSimultTab()
 
@@ -847,7 +855,7 @@ def processAllMultiFields(exitOn="files"):
 
 def clearMultiFields(event):
 	for i in range(10):
-		localVars["l_simultFile"+str(i+1)]="" ; localVars["l_simultGlos"+str(i+1)]="" ; localVars["l_simultMode"+str(i+1)]=""
+		localVars["l_simultFile"+str(i+1)]="" ; localVars["l_simultGlos"+str(i+1)]=""
 	updateAllFieldsFromGlobals()
 
 @wrapper

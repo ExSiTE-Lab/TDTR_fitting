@@ -18,7 +18,7 @@
 
 # THERMAL PROPERTIES
 #     C       Kz/G     d         Kr
-tp=[[ 2.42e6, 120.00,  80e-9, "Kz" ], # layer 1 (metal coating)
+tp=[[ 2.42e6, 121,  80e-9, "Kz" ], # layer 1 (metal coating)
     [         1/100e6                ], # interface 1
     [ 2.64e6, 35,  1.,       "Kz" ]] # layer 2 (bottom layer)
 #     J/m³/K  W/m⁽²⁾/K m         W/m/K
@@ -2605,11 +2605,11 @@ def readTDTRdata(filename):
 			rpump=float(dpu)/2*1e-6
 		a=np.zeros(len(ts))+1
 		return ts*1e-12,xs,ys,a
-		
+	
 	if "TAMU" in filename: #these are files made by the old system at TAMU
 		data=np.loadtxt(filename)
 		ts,xs,ys = data[:,1],data[:,2],data[:,3]
-		aux = np.ones(len(ts))# So nothing breaks
+		aux = np.ones((len(ts),2))# So nothing breaks
 		return ts*1e-12,xs,ys,aux
 
 	data=np.loadtxt(filename,skiprows=2)
@@ -4335,9 +4335,6 @@ def predictUncert(settables="",addedNoise=0.0,regen=True,threshold=.025,nworkers
 	if "mode" not in settables.keys():
 		settables["mode"]=[mode]
 	
-	if os.path.exists(subdir+"/gui.py_"):
-		shutil.rmtree(subdir+"/gui.py_")
-
 	fnames=[subdir+"/predictUncert_"+m+"_"+str(i)+".txt" for i,m in enumerate(settables["mode"])]
 	for i,f in enumerate(fnames):
 		for k in settables.keys():
