@@ -372,6 +372,8 @@ def updateAllGlobalsFromFields(tab):
 				oldval=localVars[glo]
 			else:
 				oldval=getVar(glo)				# OR, retrieve existing value (TDTR globals)
+			if type(oldval)==float: 				# e.g. pump depth "1e-3+80e-9" ought to work
+				val=eval(val)
 			val=type(oldval)(val)					# and use it's type to convert from string back to the correct type
 		if glo in localVars.keys():
 			localVars[glo]=val					# and update local variable, or globals, with value
