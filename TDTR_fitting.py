@@ -3871,6 +3871,7 @@ def perturbUncertainty(fileToRead,paramsToPerturb='',perturbBy='',plotting="none
 		conditionalPrint("perturbUncertainty","perturbing "+P+"("+str(getParam(P))+","+str(type(getParam(P)))+") by "+str(dP)+"%")
 		
 		tp=copy.deepcopy(tp_solved)
+		originalValue=getParam(P)
 		setParam(P,getParam(P)*(1.+dP/100.),warning=False)
 
 		# # PSUEDO-DEPENDENT PARAMETERS: RULE 1: if perturbing a param affecting the ref sample fit, then also perturb the dependent param.
@@ -3891,6 +3892,12 @@ def perturbUncertainty(fileToRead,paramsToPerturb='',perturbBy='',plotting="none
 			conditionalPrint("perturbUncertainty",tofit[i]+"p="+str(resultPerturbed[i])+" vs "+tofit[i]+"o="+str(resultUnperturbed[i])+", d"+tofit[i]+"/d"+P+"="+str(dRes[-1]))
 		delResults.append(dRes)
 	
+		# PUT DEPENDENT PARAMETERS BACK HOW THEY WERE
+		if P in dependentParams.keys():		# e.g. {"rpu":["gamma",-481.2],"rpr":["gamma",-23.72],"Kz1":["gamma":-65.43] }
+			setParam(dependentParams[P][0],originalDependent)	# set "gamma" back to original value
+		# ALSO PUT BACK THE ORIGINAL VALUE OF *THIS* PARAM
+		setParam(P,originalValue) # (just in case, e.g. gamma or rpu/rpr/etc)
+
 		 #solve>readTDTR can read pump, probe radii, and modulation frequency. turn them off after we've read them one, so our perturbations of those values works. 
 		if P=="rpu":
 			autorpu=autorpu_original
@@ -3899,17 +3906,13 @@ def perturbUncertainty(fileToRead,paramsToPerturb='',perturbBy='',plotting="none
 		if P=="fm":
 			autofm=autofm_original
 
-		# PUT DEPENDENT PARAMETERS BACK HOW THEY WERE
-		if P in dependentParams.keys():		# e.g. {"rpu":["gamma",-481.2],"rpr":["gamma",-23.72],"Kz1":["gamma":-65.43] }
-			setParam(dependentParams[P][0],originalDependent)	# set "gamma" back to original value
-
-	
 
 	#solving complete, restore old settings
 	tp=copy.deepcopy(tp_original) #restore
 	gamma=gamma_original
 	# REFIT USING STOCK PARAMETERS. (if you don't, solve > writeResultFile() will mean we're left with a perturbed result-file, which will mess up any subsequent solve(refit=False) runs. so *just in case*, we should refit
 	resultUnperturbed,[RESo,sigo]=solveFunc["func"](fileToRead,**solveFunc["kwargs"])
+	conditionalPrint("perturbUncertainty","refit results: "+str(resultUnperturbed))
 	#compute sqrt(dKdA^2+dKdB^2+dKdC^2+...dKdN^2), sqrt(dGdA^2+dGdB^2+dGdC^2+...dGdN^2), sqrt(dEtcdE^2+dEtcdB^2+dEtcdC^2+...dKdN^2). "for each column in Dres ([[dKdA,dGdA,...],[dKdB,dGdB,...]...]), grab each row, square, sum, root.". nice of numpy to do this for us (squaring is done element-by-element. summing is elementwise as well (each element added to the next. here, "each element" will be each row. collapsing all rows into one. pow.5 is elementwise again as well, leaving the resulting list of uncertainties. noice.
 	print(delResults)
 	delResults=np.asarray(delResults)
