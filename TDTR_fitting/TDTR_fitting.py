@@ -1484,7 +1484,7 @@ def PWAfunc(ts,*parameterValues,store=False,addNoise=False):
 
 	# step 5: generate our time-dependant signal, and shift for zero-crossing at t=0, then re-generate
 	conditionalPrint("PWAfunc","calculating time points, course")
-	ts_course=np.linspace(0,p,1000,endpoint=False) # generate one full cycle
+	ts_course=np.linspace(0,p,10000,endpoint=False) # generate one full cycle
 	z=zt(ts_course)
 	dzdt=np.gradient(z,ts_course)			# we'll use this to find everywhere curve is "rising"
 	mask=np.zeros(len(z)) ; mask[z>np.mean(z)]=1	# we'll use this to find crossovers
@@ -1492,7 +1492,10 @@ def PWAfunc(ts,*parameterValues,store=False,addNoise=False):
 	mask=np.zeros(len(z)) ; mask[dzdt>0]=1 ; mask[dmdt<=0]=0	# (do we need both criteria?)
 	i=np.where(mask==1)[0][0] #; print(mask,i)
 	f=interp1d(z[max(i-5,0):i+5],ts_course[max(i-5,0):i+5]) 	# use just the rise to swap axes: t vs mag
-	tshift=f(np.mean(z))
+	if np.amin(ts_course[max(i-5,0):i+5]) < np.mean(z) < np.amax(ts_course[max(i-5,0):i+5]):
+		tshift=f(np.mean(z))
+	else:
+		tshift=0
 	#print(mask,i,tshift)
 	
 	conditionalPrint("PWAfunc","calculating time points, passed times")
