@@ -3361,7 +3361,7 @@ def genContour2D(fileIn,fileOut='',paramRanges='',paramResolutions='',overwrite=
 	conditionalPrint("generateHeatmap","run settings: "+str(fileOut)+" ; "+str(paramRanges)+" ; "+str(paramResolutions))
 	if not overwrite and os.path.exists(fileOut):
 		warn("generateHeatmap","overwrite=False and fileOut exists, skipping generations")
-		return fileOut
+		return fileOut,True # like measureContour1axis, we return whether or not we reloaded from cache
 
 	conditionalPrint("genContour2D",fileOut+","+str(paramRanges)+","+str(paramResolutions))
 
@@ -3404,7 +3404,7 @@ def genContour2D(fileIn,fileOut='',paramRanges='',paramResolutions='',overwrite=
 	header=[]
 	header=tofit[0]+"="+str(xlb)+":"+str(xr)+":"+str(xub)+" , "+tofit[1]+"="+str(ylb)+":"+str(yr)+":"+str(yub)
 	np.savetxt(fileOut, residuals, delimiter=",",header=header)
-	return fileOut
+	return fileOut,False # like measureContour1axis, we return whether or not we reloaded from cache
 
 # fka displayHeatmap, which handled 2D or 3D. we have since split this into displayContour2D and displayContour3D. similarly, generateHeatmap has been split into genContour2D and genContour3D. We also incorporated "Wafer Bonding/isSSTRneeded.py > flat3DContour" into genContour2D, where we can basically "flatten" an N-dimensional parameter space into 2D. instead of "for each combination of 2 fitted parameters, check the residual" it is "for each combination of 2 (or 2 or more) fitted parameters, run fitting (on the remaining parameters) and check the residual". This is similar in spirit to measureContour1Axis, which is "for a range of values for 1 fitted parameter, run fitting on the remaining". This is all tested via testing61.py
 def displayContour2D(csvFile='', plotting="show", residuals='', ranges='', labels='', threshold=0.025, title='', bonusCurveFiles='', useLast=False, fileSuffix=".png",bonusXY='',interpolate=True):
@@ -4166,10 +4166,12 @@ def measureContour1Axis(fs, paramOfInterest, ranges='', resolution=100, threshol
 	pathpieces=fout.split("/")[:-1]+[callingScript,"contours"]
 	fout="/".join(pathpieces) + "/" + fout.split("/")[-1] # path portion, contour files folder, filename portion
 	fout=fout.replace(".txt","_"+paramOfInterest+".txt")
+	reloaded=False
 	#print("fs",fs)
 	# if file already exists, import it (don't regen)
 	if os.path.exists(fout) and not overwrite:
-		warn("measureContour1Axis","output file found, no need to reprocess [\""+fout+"\"]") 
+		warn("measureContour1Axis","output file found, no need to reprocess [\""+fout+"\"]")
+		reloaded=True
 		vals,residuals,params,paramVals=read1AxisContour(fout)
 		#print("vals,residuals,fout",vals,residuals,fout)
 	else:
@@ -4271,7 +4273,7 @@ def measureContour1Axis(fs, paramOfInterest, ranges='', resolution=100, threshol
 		return [0,0],fout
 	valRange=[min(goodVals),max(goodVals)]
 	#print("valrange,fout",valRange,fout)
-	return valRange,fout
+	return valRange,fout,reloaded
 
 
 	# TODO: implement RMXY ("for fitting in rmxy"), save off residual v vals curve for easy re-thresholding, test with non-simultaneous
@@ -4283,7 +4285,7 @@ def mc1aWorker(args):
 	#global tp ; tp=copy.deepcopy(tp_old)
 	setParam(paramOfInterest,v) # set the parameter value
 	if type(customParamControl)!=str: # allow the running of custom code here (used for KZF, with nonstandard params)
-		customParamControl(v)
+		customParamControl(v,solveFunc["kwargs"])
 	p={True:"show",False:"none"}["iter" in plotting]
 	#global altFname ; altFname="contPics/"+str(i)+".png"
 	#r,e=solveFunc(fs,plotting="none") # solve it. anything but none plotting crashes the system
@@ -4294,6 +4296,7 @@ def mc1aWorker(args):
 		r=np.zeros((len(tofit))) ; e=[1,1]
 		print("mc1aWorker encountered an error:",exc)
 	#print(i,v,r,e)
+	conditionalPrint("mc1aWorker","solved with args:"+str(args)+", found:"+str(r)+","+str(e))
 	#tp=copy.deepcopy(tp_old) # restore tp after solve, so it's prepped for the next val (else, we may get trapped in local minima)
 	#print("mc1aworker","ss2",r,e)
 	return r,e # in theory we've standardized all solve functions to return "[param1Result,param2result,...],[residual,stdev]", even solveSimult, which passes the max of the N simultaneous TDTR scans' residuals. 

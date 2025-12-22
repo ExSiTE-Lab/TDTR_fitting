@@ -129,7 +129,8 @@ def plot( xs, ys, xe='', ye='', markers='', labels='', filename='', multiplot=''
 		kw["label"]="dataset "+str(i+1)
 		if len(labels)>i:
 			kw["label"]=processText(labels[i])
-
+		if "alpha" in kwargs.keys():
+			kw["alpha"]=kwargs["alpha"][i]
 		# ADD TO PLOT
 		# ERRORBARS: each y entry may have a corresponding ye entry. the ye entry may be:
 		# a) single value - all datapoints in the set get the same sized symmetric error bars: "10" --> +/-10 for each datapoint
@@ -389,18 +390,38 @@ def invertPlotColors(axs,fig):
 	frame.set_edgecolor('white')			# legend border lines --> white
 
 # this function returns an extras function! use it to add color-gradient lines (or alpha intensity gradient lines, since matplotlib's alphas arg doesn't accept lists of values). note: if you pass an empty Xs and Ys lists, the plot extents will not be auto-set properly, so you might want to plot the datasets invisibly first (e.g., in white) too. e.g., try "plot([x],[y],markers=['w-'],extras=[addGradientLine(x,y,cs)])" where x,y,cs are single lists of values, with cs being the color. cs can either be a list of values 0-1 (passed to the colormap) or an nx3 or nx4 array (RGB(A) colors)
-def addGradientLine(x,y,cs,nth=1):
+def addGradientLine(x,y,cs,nth=1,cmap=cmap):
 	def extra(axs,fig):
 		from matplotlib.collections import LineCollection
 		points=np.asarray([x,y]).T.reshape(-1,1,2)
 		segments = np.concatenate([points[:-1], points[1:]], axis=1)
-		lc = LineCollection(segments[::nth],linestyle="-",lw=2)
+		mask=np.zeros(len(segments))
+		mask[ (np.arange(len(segments))%nth)<=nth//2 ] = 1
+		#segments=[ s for i,s in enumerate(segments) if (i%nth)<=nth//2 ]
+		segments=segments[mask==1]
+		lc = LineCollection(segments,linestyle="-",lw=2)
 		if len(np.shape(cs))>1:
-			lc.set(color=cs[::nth])
+			lc.set(color=cs[:-1][mask==1])
 		else:
 			lc.set(cmap=cmap)
-			lc.set_array(cs[::nth])
+			lc.set_array(cs[:-1][mask==1])
 		axs[0].add_collection(lc)
+	return extra
+
+def annotations(xs,ys,text,dxs="",dys="",arrowprops="",textprops=""):
+	arrowprops=[ arrowprops[n] if len(arrowprops)>n else {} for n in range(len(xs)) ]
+	textprops =[ textprops[n] if len(textprops)>n else {} for n in range(len(xs)) ]
+	def extra(axs,fig):
+		for n,(x,y,t) in enumerate(zip(xs,ys,text)):
+			dx=0 ; dy=0 ; ap=None
+			if n<len(dxs):
+				dx=dxs[n]
+			if n<len(dys):
+				dy=dys[n]
+			#ap = { True:arrowprops[n], False:{} }( n<len(arrowprops) )
+			#tp = { True:textprops[n], False:{} }( n<len(textprops) )
+			ap=arrowprops[n] ; tp=textprops[n]
+			axs[0].annotate(t,xy=(x,y),xytext=(x+dx,y+dy),arrowprops=ap,**tp)
 	return extra
 
 def saveCSV(xs,ys,ye,xlabel,ylabel,labels,filename):

@@ -40,6 +40,7 @@ def contour(zvals,xvals,yvals,filename='',heatOrContour="heat",useLast=False,ext
 		#print(xvals)
 	else: 
 		lens=[ len(z) for z in zvals ]
+		zvals=np.zeros(zvals.shape)+zvals # "deep copy" so pix nanning doesn't actually edit the original matrix! 
 		# 2D RAGGED DATASET, USE 1D INTERPOLATION TO GRIDIFY
 		if len(set(lens))!=1 or np.shape(zvals)==np.shape(xvals):
 			from scipy.interpolate import interp1d
@@ -51,8 +52,7 @@ def contour(zvals,xvals,yvals,filename='',heatOrContour="heat",useLast=False,ext
 				f=interp1d(x,z)
 				Zs.append(f(xs))
 			zvals=np.asarray(Zs) ; xvals=xs
-
-
+	#print(np.nanmin(zvals),np.nanmax(zvals))
 	if np.amin(zvals)==np.amax(zvals):
 		print("nicecontour: bad z bounds. exiting")
 		print(np.amin(zvals),np.amax(zvals))
@@ -88,7 +88,7 @@ def contour(zvals,xvals,yvals,filename='',heatOrContour="heat",useLast=False,ext
 	#	matplotlib.use("TkAgg") # https://stackoverflow.com/questions/56656777/userwarning-matplotlib-is-currently-using-agg-which-is-a-non-gui-backend-so
 	#else:
 	#	matplotlib.use("Agg") # https://stackoverflow.com/questions/31156578/matplotlib-doesnt-release-memory-after-savefig-and-close
-	LB,UB=np.nanmin(zvals),np.nanmax(zvals)
+	LB,UB=np.nanmin(zvals),np.nanmax(zvals) #; print(LB,UB)
 	if "xlim" in kwargs.keys() or "ylim" in kwargs.keys():
 		mask=np.ones(np.shape(zvals))
 		xlim=kwargs.get("xlim",[min(xvals),max(xvals)])
@@ -109,19 +109,21 @@ def contour(zvals,xvals,yvals,filename='',heatOrContour="heat",useLast=False,ext
 
 	if "zlim" in kwargs.keys():
 		zlim=kwargs["zlim"] ; LB={True:LB,False:zlim[0]}[zlim[0] is None] ; UB={True:UB,False:zlim[1]}[zlim[1] is None]
+	#print("zlim",zlim)
 	nticks=kwargs.get("nticks",10)
 	#print(LB,UB)
 	ticks=kwargs.get("zticks",np.linspace(LB,UB,nticks))
-	
+	#print("LB,UB",LB,UB)
 	# for heatmaps, you can use tricontourf, but that won't work for contours. need to follow https://matplotlib.org/stable/gallery/images_contours_and_fields/irregulardatagrid.html
 
+	aspect=kwargs.get("aspect","auto")
 
 	if heatOrContour in ["heat","both"]:
 		CS=plt.contourf(xvals,yvals,zvals,levels=np.linspace(LB,UB,500),cmap=kwargs.get("cmap",defaultcmap))
 		#print(np.amin(zvals),np.amax(zvals))
 		#cbar=plt.colorbar(ticks=ticks)
-		for c in CS.collections:
-			c.set_edgecolor("face")
+		#for c in CS.collections:
+		#	c.set_edgecolor("face")
 		#	c.set_rasterized(True)
 		#nDecimals=max(0,int(1-np.floor(np.log(UB-LB)/np.log(10)))) # 0.35-0 --> -0.4559319556497244 --> -1 --> could be represented at 3.5e-1. if it was 35, we'd want 0 decimals. if it was 3.5 we'd want 1 decimal. -1 we want 2. 350, we still want 0 decimals
 		#print(nDecimals)
@@ -166,7 +168,7 @@ def contour(zvals,xvals,yvals,filename='',heatOrContour="heat",useLast=False,ext
 		#	zvals=zvals[::-1,:]	# col-by-col and row-by-row values. So if you have ascending yvals or descending xvals, heat or 
 		#if xvals[0]>xvals[1]:		# contour modes would be correct, but the pix map would be flipped. so we need to manually
 		#	zvals=zvals[:,::-1]	# detect and flip zvals as appropriate DOING IT BASED ON SINGLE PIXEL PAIRS IS BAD THOUGH
-		zvals[zvals<LB]=np.nan ; zvals[zvals>UB]=np.nan
+		zvals[zvals<LB]=np.nan ; zvals[zvals>UB]=np.nan # THIS ISN'T ENOUGH. 
 		# AUTO SORTING OF ROWS AND COLUMNS? 
 		# Suppose the user passed: xvals=[1,2,3,4,5,-5,-4,-3,-2,-1] (common if it's frequencies that came from np.fft.fftfreq!). imshow simply shows the image, but we need to reorder the columns!
 		# calculate ordering of rows/columns
@@ -181,7 +183,7 @@ def contour(zvals,xvals,yvals,filename='',heatOrContour="heat",useLast=False,ext
 		# BEWARE: imshow displays with origin in upper-left. and imshow takes extent, not the actual col-by-col and row-by-row values. We just sorted zvals to have ascending yvals and ascending xvals, so now we need to flip the pix map 
 		zvals=zvals[::-1,:]
 		
-		plt.imshow(zvals,extent=(min(xvals),max(xvals),min(yvals),max(yvals)),cmap=kwargs.get("cmap",defaultcmap),aspect=aspect)
+		plt.imshow(zvals,extent=(min(xvals),max(xvals),min(yvals),max(yvals)),cmap=kwargs.get("cmap",defaultcmap),aspect=aspect,vmax=UB,vmin=LB)
 		#cbar=plt.colorbar(ticks=ticks)
 		#if len(np.shape(zvals))<3:
 		addcbar(kwargs)
@@ -196,8 +198,10 @@ def contour(zvals,xvals,yvals,filename='',heatOrContour="heat",useLast=False,ext
 	plt.ylim( kwargs.get("ylim",None) )
 	#plt.clim( kwargs.get("zlim",None) )
 	if "aspect" in kwargs.keys():
+		#print("set aspect",kwargs["aspect"])
 		plt.gca().set_aspect(kwargs["aspect"])
-
+	if "figsize" in kwargs.keys():				# most are okay receiving None, except for set_size_inches
+		fig.set_size_inches( kwargs.get("figsize") )
 	if "overplot" in kwargs.keys(): # it's possible to pass a list of dicts of xs,ys,markers, to be plotted over top of the contour/heatmap
 		for dataset in kwargs["overplot"]:
 			#print("overplotting",dataset)
@@ -232,6 +236,8 @@ def contour(zvals,xvals,yvals,filename='',heatOrContour="heat",useLast=False,ext
 	#return CS
 
 def addcbar(kwargs):
+	if kwargs.get("nocbar",False):
+		return
 	global cbar,ticks
 	cbar=plt.colorbar(ticks=ticks)
 	nDecimals=max(0,int(1-np.floor(np.log(UB-LB)/np.log(10)))) # 0.35-0 --> -0.4559319556497244 --> -1 --> could be represented at 3.5e-1. if it was 35, we'd want 0 decimals. if it was 3.5 we'd want 1 decimal. -1 we want 2. 350, we still want 0 decimals

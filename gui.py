@@ -655,6 +655,11 @@ def pertUncSimult(event): # was "runPerturbing"
 	printToResultsPanel(resultString)
 	r.append(s) ; e.append(u)
 
+def reloadedMessage(reloaded):
+	if reloaded:
+		printToResultsPanel("warning: results were reloaded from cache. delete folder \"__gui.py\" to regenerate")
+
+
 @wrapper
 def fastCont(event): # was "runContour"
 	fs=files ; solvefunc={"func":solve,"kwargs":{}}
@@ -663,13 +668,14 @@ def fastCont(event): # was "runContour"
 		if getVar("mode")=="SSTR":
 			p=getVar("tofit")[0]
 		thresh=float(localVars["l_contval"])
-		bnds,fout=measureContour1Axis(f,paramOfInterest=p,plotting="savefinal",resolution=100,threshold=thresh/100,solveFunc=solvefunc)
+		bnds,fout,reloaded=measureContour1Axis(f,paramOfInterest=p,plotting="savefinal",resolution=100,threshold=thresh/100,solveFunc=solvefunc)
 		error=(bnds[1]-bnds[0])/2 ; errorp=(bnds[1]-bnds[0])/(bnds[1]+bnds[0])
 		#out(p+" : "+str(bnds)+" : +/- "+str(error))
 		fact,unit=getScaleUnits(p)
 		printToResultsPanel(scientificNotation(bnds[0]*fact,2)+" <= "+p+" <= "+scientificNotation(bnds[1]*fact,2)+" "+unit+
 			" (+/-"+scientificNotation(error*fact,2)+" "+unit+" or "+
 			"+/-"+str(np.round(errorp*100,1))+"%)")
+		#reloadedMessage(reloaded)
 
 @wrapper
 def fastContSimult(event): # was "runContour"
@@ -679,7 +685,7 @@ def fastContSimult(event): # was "runContour"
 	p=localVars["l_contparam"]
 	thresh=float(localVars["l_contval"])
 
-	bnds,fout=measureContour1Axis(files,paramOfInterest=p,plotting="savefinal",resolution=100,threshold=thresh/100,solveFunc=solvefunc)
+	bnds,fout,reloaded=measureContour1Axis(files,paramOfInterest=p,plotting="savefinal",resolution=100,threshold=thresh/100,solveFunc=solvefunc)
 
 	error=(bnds[1]-bnds[0])/2 ; errorp=(bnds[1]-bnds[0])/(bnds[1]+bnds[0])
 	#out(p+" : "+str(bnds)+" : +/- "+str(error))
@@ -687,15 +693,17 @@ def fastContSimult(event): # was "runContour"
 	printToResultsPanel(scientificNotation(bnds[0]*fact,2)+" <= "+p+" <= "+scientificNotation(bnds[1]*fact,2)+" "+unit+
 		" (+/-"+scientificNotation(error*fact,2)+" "+unit+" or "+
 		"+/-"+str(np.round(errorp*100,1))+"%)")
+	#reloadedMessage(reloaded)
 
 @wrapper
 def cont2D(event): # was "runContour2D"
 	pr=[[v*.1,v*2] for v in lastResult ]
 	D="2D"
 	thresh=float(localVars["l_contval"])/100
-	fileOut=genContour2D(files[0],paramRanges=pr)
+	fileOut,reloaded=genContour2D(files[0],paramRanges=pr)
 	globstr=files[0].split("/")[:-1] + ["gui.py_","contours","*.txt"] ; globstr="/".join(globstr)
 	displayContour2D(fileOut,plotting="save",threshold=thresh)
+	#reloadedMessage(reloaded)
 
 # THERE ARE TWO BEHAVIORS TO EXPECTR FROM genContour2D:
 # 1) each file can be treated individually, "solve()" is run for each file to get the residual at each point for that file. this generates N contour plots for N files. If you have 2 fitting parameters, the candidate area is simply the overlap between them.
@@ -711,8 +719,10 @@ def cont2DSimult(event): # was "runContour2D"
 	D="2D"
 	thresh=float(localVars["l_contval"])/100
 	# genContour2D can take solveFunc={ "func" : solve or ss2, "kwargs" : {dict of kwargs} } and ALSO takes settables=
-	fileOut=genContour2D(files,paramRanges=pr,settables=settables) # generateHeatmap accepts a LIST of files, which it just loops through
+	fileOut,reloaded=genContour2D(files,paramRanges=pr,settables=settables) # generateHeatmap accepts a LIST of files, which it just loops through
 	displayContour2D(fileOut,plotting="save",threshold=thresh) # list -> generateHeatmap -> list -> displayHeatmap also accepts a list (and 
+	#reloadedMessage(reloaded)
+
 
 @wrapper
 def cont3DFlatSimult(event): # was "runContour2D"
@@ -722,8 +732,9 @@ def cont3DFlatSimult(event): # was "runContour2D"
 	D="2D"
 	thresh=float(localVars["l_contval"])/100
 	# genContour2D can take solveFunc={ "func" : solve or ss2, "kwargs" : {dict of kwargs} } and ALSO takes settables=
-	fileOut=genContour2D(files,paramRanges=pr,solveFunc={"func":ss2,"kwargs":{"settables":settables}}) # generateHeatmap accepts a LIST of files, which it just loops through
+	fileOut,reloaded=genContour2D(files,paramRanges=pr,solveFunc={"func":ss2,"kwargs":{"settables":settables}}) # generateHeatmap accepts a LIST of files, which it just loops through
 	displayContour2D(fileOut,plotting="save",threshold=thresh) # list -> generateHeatmap -> list -> displayHeatmap also accepts a list (and 
+	#reloadedMessage(reloaded)
 
 
 @wrapper
